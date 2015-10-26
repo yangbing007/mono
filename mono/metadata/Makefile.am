@@ -130,6 +130,7 @@ common_sources = \
 	filewatcher.c		\
 	filewatcher.h		\
 	gc-internal.h		\
+	heap-balloon.h		\
 	icall.c			\
 	icall-def.h		\
 	image.c			\
@@ -223,6 +224,7 @@ gc_dependent_sources = \
 	domain.c	\
 	gc-stats.c	\
 	gc.c		\
+	heap-balloon.c	\
 	monitor.c	\
 	mono-hash.c	\
 	object.c	\

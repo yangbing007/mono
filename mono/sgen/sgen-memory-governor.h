@@ -29,6 +29,10 @@ void sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowa
 void sgen_memgov_release_space (mword size, int space);
 gboolean sgen_memgov_try_alloc_space (mword size, int space);
 
+/* Heap balloon */
+void sgen_memgov_balloon_inflate (mword additional_pressure);
+void sgen_memgov_balloon_deflate (mword remove_pressure);
+
 /* GC trigger heuristics */
 void sgen_memgov_minor_collection_start (void);
 void sgen_memgov_minor_collection_end (void);

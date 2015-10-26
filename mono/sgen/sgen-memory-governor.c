@@ -66,6 +66,10 @@ static mword last_collection_los_memory_usage = 0;
 
 static mword sgen_memgov_available_free_space (void);
 
+/* Additional phantom allocations to pressure the governor into
+ * collecting more often. */
+static mword balloon_pressure = 0;
+
 
 /* GC trigger heuristics. */
 
@@ -259,6 +263,29 @@ sgen_gc_get_total_heap_allocation (void)
 	return total_alloc;
 }
 
+/*
+  Add apparent memory pressure by inflating a balloon that decreases
+  available (major) heap space.
+
+  XXX TODO - everything mentioning balloon_pressure and allocated_heap is racy.
+*/
+void
+sgen_memgov_balloon_inflate (mword additional_pressure)
+{
+	balloon_pressure = MAX (balloon_pressure, balloon_pressure + additional_pressure);
+}
+
+/*
+  Remove apparent memory pressure by deflating a balloon that decreases available (major) heap space.
+*/
+
+void
+sgen_memgov_balloon_deflate (mword release_pressure)
+{
+	if (G_UNLIKELY (release_pressure > balloon_pressure))
+		release_pressure = balloon_pressure;
+	balloon_pressure -= release_pressure;
+}
 
 /*
 Heap Sizing limits.
@@ -269,7 +296,7 @@ for other parts of the GC.
 static mword
 sgen_memgov_available_free_space (void)
 {
-	return max_heap_size - MIN (allocated_heap, max_heap_size);
+	return max_heap_size - MIN (allocated_heap + balloon_pressure, max_heap_size);
 }
 
 void

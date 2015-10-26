@@ -155,5 +155,26 @@ namespace System
 		extern static object get_ephemeron_tombstone ();
 
 		internal static readonly object EPHEMERON_TOMBSTONE = get_ephemeron_tombstone ();
+		
+		[MethodImplAttribute (MethodImplOptions.InternalCall)]
+		private extern static void inflate_balloon (ulong nbytes);
+
+		[MethodImplAttribute (MethodImplOptions.InternalCall)]
+		private extern static void deflate_balloon (ulong nbytes);
+
+		internal class HeapBalloon {
+			internal static void Inflate (ulong n)
+			{
+				inflate_balloon (n);
+			}
+
+			internal static void Deflate (ulong n)
+			{
+				deflate_balloon (n);
+			}
+
+		}
+
+		
 	}
 }
