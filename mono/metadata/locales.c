@@ -18,12 +18,14 @@
 
 #include <mono/metadata/debug-helpers.h>
 #include <mono/metadata/object.h>
+#include <mono/metadata/object-internals.h>
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/exception.h>
 #include <mono/metadata/monitor.h>
 #include <mono/metadata/locales.h>
 #include <mono/metadata/culture-info.h>
 #include <mono/metadata/culture-info-tables.h>
+#include <mono/metadata/handle.h>
 #include <mono/utils/bsearch.h>
 
 #ifndef DISABLE_NORMALIZATION
@@ -37,25 +39,190 @@
 
 #undef DEBUG
 
-static gint32 string_invariant_compare_char (gunichar2 c1, gunichar2 c2,
-					     gint32 options);
-static gint32 string_invariant_compare (MonoString *str1, gint32 off1,
-					gint32 len1, MonoString *str2,
-					gint32 off2, gint32 len2,
-					gint32 options);
-static MonoString *string_invariant_replace (MonoString *me,
-					     MonoString *oldValue,
-					     MonoString *newValue);
-static gint32 string_invariant_indexof (MonoString *source, gint32 sindex,
-					gint32 count, MonoString *value,
-					MonoBoolean first);
-static gint32 string_invariant_indexof_char (MonoString *source, gint32 sindex,
-					     gint32 count, gunichar2 value,
-					     MonoBoolean first);
+enum {
+	CompareOptions_None = 0x00,
+	CompareOptions_IgnoreCase = 0x01,
+	CompareOptions_IgnoreNonSpace = 0x02,
+	CompareOptions_IgnoreSymbols = 0x04,
+	CompareOptions_IgnoreKanaType = 0x08,
+	CompareOptions_IgnoreWidth = 0x10,
+	CompareOptions_StringSort = 0x20000000,
+	CompareOptions_Ordinal = 0x40000000,
+};
 
-static const CultureInfoEntry* culture_info_entry_from_lcid (int lcid);
+struct _MonoCalendarData {
+	MonoObject obj;
+	MonoString *NativeName;
+	MonoArray *ShortDatePatterns;
+	MonoArray *YearMonthPatterns;
+	MonoArray *LongDatePatterns;
+	MonoString *MonthDayPattern;
 
-static const RegionInfoEntry* region_info_entry_from_lcid (int lcid);
+	MonoArray *EraNames;
+	MonoArray *AbbreviatedEraNames;
+	MonoArray *AbbreviatedEnglishEraNames;
+	MonoArray *DayNames;
+	MonoArray *AbbreviatedDayNames;
+	MonoArray *SuperShortDayNames;
+	MonoArray *MonthNames;
+	MonoArray *AbbreviatedMonthNames;
+	MonoArray *GenitiveMonthNames;
+	MonoArray *GenitiveAbbreviatedMonthNames;
+};
+
+struct _MonoCompareInfo {
+	MonoObject obj;
+	gint32 lcid;
+	MonoString *icu_name;
+	gpointer ICU_collator;
+};
+
+struct _MonoCultureData {
+	MonoObject obj;
+	MonoString *AMDesignator;
+	MonoString *PMDesignator;
+	MonoString *TimeSeparator;
+	MonoArray *LongTimePatterns;
+	MonoArray *ShortTimePatterns;
+	guint32 FirstDayOfWeek;
+	guint32 CalendarWeekRule;
+};
+
+struct _MonoCultureInfo {
+	MonoObject obj;
+	MonoBoolean is_read_only;
+	gint32 lcid;
+	gint32 parent_lcid;
+	gint32 datetime_index;
+	gint32 number_index;
+	gint32 calendar_type;
+	MonoBoolean use_user_override;
+	MonoNumberFormatInfo *number_format;
+	MonoDateTimeFormatInfo *datetime_format;
+	MonoObject *textinfo;
+	MonoString *name;
+	MonoString *englishname;
+	MonoString *nativename;
+	MonoString *iso3lang;
+	MonoString *iso2lang;
+	MonoString *win3lang;
+	MonoString *territory;
+	MonoArray *native_calendar_names;
+	MonoCompareInfo *compareinfo;
+	const void* text_info_data;
+};
+
+struct _MonoDateTimeFormatInfo {
+	MonoObject obj;
+	MonoBoolean readOnly;
+	MonoString *AMDesignator;
+	MonoString *PMDesignator;
+	MonoString *DateSeparator;
+	MonoString *TimeSeparator;
+	MonoString *ShortDatePattern;
+	MonoString *LongDatePattern;
+	MonoString *ShortTimePattern;
+	MonoString *LongTimePattern;
+	MonoString *MonthDayPattern;
+	MonoString *YearMonthPattern;
+	guint32 FirstDayOfWeek;
+	guint32 CalendarWeekRule;
+	MonoArray *AbbreviatedDayNames;
+	MonoArray *DayNames;
+	MonoArray *MonthNames;
+	MonoArray *GenitiveMonthNames;
+	MonoArray *AbbreviatedMonthNames;
+	MonoArray *GenitiveAbbreviatedMonthNames;
+	MonoArray *ShortDatePatterns;
+	MonoArray *LongDatePatterns;
+	MonoArray *ShortTimePatterns;
+	MonoArray *LongTimePatterns;
+	MonoArray *MonthDayPatterns;
+	MonoArray *YearMonthPatterns;
+	MonoArray *ShortestDayNames;
+};
+
+struct _MonoNumberFormatInfo {
+	MonoObject obj;
+	MonoArray *numberGroupSizes;
+	MonoArray *currencyGroupSizes;
+	MonoArray *percentGroupSizes;
+	MonoString *positiveSign;
+	MonoString *negativeSign;
+	MonoString *numberDecimalSeparator;
+	MonoString *numberGroupSeparator;
+	MonoString *currencyGroupSeparator;
+	MonoString *currencyDecimalSeparator;
+	MonoString *currencySymbol;
+	MonoString *ansiCurrencySymbol;	/* unused */
+	MonoString *naNSymbol;
+	MonoString *positiveInfinitySymbol;
+	MonoString *negativeInfinitySymbol;
+	MonoString *percentDecimalSeparator;
+	MonoString *percentGroupSeparator;
+	MonoString *percentSymbol;
+	MonoString *perMilleSymbol;
+	MonoString *nativeDigits; /* unused */
+	gint32 dataItem; /* unused */
+	guint32 numberDecimalDigits;
+	gint32 currencyDecimalDigits;
+	gint32 currencyPositivePattern;
+	gint32 currencyNegativePattern;
+	gint32 numberNegativePattern;
+	gint32 percentPositivePattern;
+	gint32 percentNegativePattern;
+	gint32 percentDecimalDigits;
+};
+
+struct _MonoRegionInfo {
+	MonoObject obj;
+	gint32 geo_id;
+	MonoString *iso2name;
+	MonoString *iso3name;
+	MonoString *win3name;
+	MonoString *english_name;
+	MonoString *native_name;
+	MonoString *currency_symbol;
+	MonoString *iso_currency_symbol;
+	MonoString *currency_english_name;
+	MonoString *currency_native_name;
+};
+
+struct _MonoSortKey {
+	MonoObject obj;
+	MonoString *str;
+	gint32 options;
+	MonoArray *key;
+	gint32 lcid;
+};
+
+MONO_HANDLE_TYPE_DECL (MonoCalendarData);
+MONO_HANDLE_TYPE_DECL (MonoCompareInfo);
+MONO_HANDLE_TYPE_DECL (MonoCultureData);
+MONO_HANDLE_TYPE_DECL (MonoCultureInfo);
+MONO_HANDLE_TYPE_DECL (MonoNumberFormatInfo);
+MONO_HANDLE_TYPE_DECL (MonoRegionInfo);
+
+static gint32
+string_invariant_compare_char (gunichar2 c1, gunichar2 c2, gint32 options);
+
+static gint32
+string_invariant_compare (MONO_HANDLE_TYPE (MonoString) *str1_handle, gint32 off1, gint32 len1, MONO_HANDLE_TYPE (MonoString) *str2_handle, gint32 off2, gint32 len2, gint32 options);
+
+static MonoString*
+string_invariant_replace (MonoString *me, MonoString *oldValue, MonoString *newValue);
+
+static gint32
+string_invariant_indexof (MonoString *source, gint32 sindex, gint32 count, MonoString *value, MonoBoolean first);
+
+static gint32
+string_invariant_indexof_char (MonoString *source, gint32 sindex, gint32 count, gunichar2 value, MonoBoolean first);
+
+static const CultureInfoEntry*
+culture_info_entry_from_lcid (int lcid);
+
+static const RegionInfoEntry*
+region_info_entry_from_lcid (int lcid);
 
 static int
 culture_lcid_locator (const void *a, const void *b)
@@ -162,44 +329,50 @@ ves_icall_System_Globalization_CalendarData_fill_calendar_data (MonoCalendarData
 {
 	MonoDomain *domain;
 	const DateTimeFormatEntry *dfe;
-	const CultureInfoNameEntry *ne;
+	const CultureInfoNameEntry *name_entry;
 	const CultureInfoEntry *ci;
-	char *n;
+	char *name_utf8;
+	MONO_HANDLE_TYPE (MonoCalendarData) *this_obj_handle;
+	MONO_HANDLE_TYPE (MonoString) *name_handle;
+	MonoBoolean ret = FALSE;
 
-	n = mono_string_to_utf8 (name);
-	ne = mono_binary_search (n, culture_name_entries, NUM_CULTURE_ENTRIES,
-			sizeof (CultureInfoNameEntry), culture_name_locator);
-	g_free (n);
-	if (ne == NULL) {
-		return FALSE;
+	MONO_HANDLE_ARENA_PUSH (2);
+
+	this_obj_handle = MONO_HANDLE_NEW (MonoCalendarData, this_obj);
+	name_handle = MONO_HANDLE_NEW (MonoString, name);
+
+	MONO_PREPARE_CRITICAL_SECTION;
+	name_utf8 = mono_string_to_utf8 (mono_handle_obj (name_handle));
+	MONO_FINISH_CRITICAL_SECTION;
+
+	name_entry = mono_binary_search (name_utf8, culture_name_entries, NUM_CULTURE_ENTRIES, sizeof (CultureInfoNameEntry), culture_name_locator);
+	g_free (name_utf8);
+
+	if (name_entry) {
+		ci = &culture_entries [name_entry->culture_entry_index];
+		dfe = &datetime_format_entries [ci->datetime_format_index];
+
+		domain = mono_domain_get ();
+
+		MONO_HANDLE_SETREF (this_obj_handle, NativeName, mono_string_new (domain, idx2string (ci->nativename)));
+		MONO_HANDLE_SETREF (this_obj_handle, ShortDatePatterns, create_names_array_idx_dynamic (dfe->short_date_patterns, NUM_SHORT_DATE_PATTERNS));
+		MONO_HANDLE_SETREF (this_obj_handle, YearMonthPatterns, create_names_array_idx_dynamic (dfe->year_month_patterns, NUM_YEAR_MONTH_PATTERNS));
+
+		MONO_HANDLE_SETREF (this_obj_handle, LongDatePatterns, create_names_array_idx_dynamic (dfe->long_date_patterns, NUM_LONG_DATE_PATTERNS));
+		MONO_HANDLE_SETREF (this_obj_handle, MonthDayPattern, mono_string_new (domain, idx2string (dfe->month_day_pattern)));
+
+		MONO_HANDLE_SETREF (this_obj_handle, DayNames, create_names_array_idx (dfe->day_names, NUM_DAYS));
+		MONO_HANDLE_SETREF (this_obj_handle, AbbreviatedDayNames, create_names_array_idx (dfe->abbreviated_day_names, NUM_DAYS));
+		MONO_HANDLE_SETREF (this_obj_handle, SuperShortDayNames, create_names_array_idx (dfe->shortest_day_names, NUM_DAYS));
+		MONO_HANDLE_SETREF (this_obj_handle, MonthNames, create_names_array_idx (dfe->month_names, NUM_MONTHS));
+		MONO_HANDLE_SETREF (this_obj_handle, AbbreviatedMonthNames, create_names_array_idx (dfe->abbreviated_month_names, NUM_MONTHS));
+		MONO_HANDLE_SETREF (this_obj_handle, GenitiveMonthNames, create_names_array_idx (dfe->month_genitive_names, NUM_MONTHS));
+		MONO_HANDLE_SETREF (this_obj_handle, GenitiveAbbreviatedMonthNames, create_names_array_idx (dfe->abbreviated_month_genitive_names, NUM_MONTHS));
 	}
 
-	ci = &culture_entries [ne->culture_entry_index];
-	dfe = &datetime_format_entries [ci->datetime_format_index];
+	MONO_HANDLE_ARENA_POP;
 
-	domain = mono_domain_get ();
-
-	MONO_OBJECT_SETREF (this_obj, NativeName, mono_string_new (domain, idx2string (ci->nativename)));
-	MONO_OBJECT_SETREF (this_obj, ShortDatePatterns, create_names_array_idx_dynamic (dfe->short_date_patterns,
-			NUM_SHORT_DATE_PATTERNS));
-	MONO_OBJECT_SETREF (this_obj, YearMonthPatterns, create_names_array_idx_dynamic (dfe->year_month_patterns,
-			NUM_YEAR_MONTH_PATTERNS));
-
-	MONO_OBJECT_SETREF (this_obj, LongDatePatterns, create_names_array_idx_dynamic (dfe->long_date_patterns,
-			NUM_LONG_DATE_PATTERNS));
-	MONO_OBJECT_SETREF (this_obj, MonthDayPattern, mono_string_new (domain, idx2string (dfe->month_day_pattern)));
-
-	MONO_OBJECT_SETREF (this_obj, DayNames, create_names_array_idx (dfe->day_names, NUM_DAYS));
-	MONO_OBJECT_SETREF (this_obj, AbbreviatedDayNames, create_names_array_idx (dfe->abbreviated_day_names, 
-			NUM_DAYS));
-	MONO_OBJECT_SETREF (this_obj, SuperShortDayNames, create_names_array_idx (dfe->shortest_day_names, NUM_DAYS));
-	MONO_OBJECT_SETREF (this_obj, MonthNames, create_names_array_idx (dfe->month_names, NUM_MONTHS));
-	MONO_OBJECT_SETREF (this_obj, AbbreviatedMonthNames, create_names_array_idx (dfe->abbreviated_month_names,
-			NUM_MONTHS));
-	MONO_OBJECT_SETREF (this_obj, GenitiveMonthNames, create_names_array_idx (dfe->month_genitive_names, NUM_MONTHS));
-	MONO_OBJECT_SETREF (this_obj, GenitiveAbbreviatedMonthNames, create_names_array_idx (dfe->abbreviated_month_genitive_names, NUM_MONTHS));
-
-	return TRUE;
+	return ret;
 }
 
 void
@@ -207,22 +380,27 @@ ves_icall_System_Globalization_CultureData_fill_culture_data (MonoCultureData *t
 {
 	MonoDomain *domain;
 	const DateTimeFormatEntry *dfe;
+	MONO_HANDLE_TYPE (MonoCultureData) *this_obj_handle;
 
 	g_assert (datetime_index >= 0);
+
+	MONO_HANDLE_ARENA_PUSH (1);
+
+	this_obj_handle = MONO_HANDLE_NEW (MonoCultureData, this_obj);
 
 	dfe = &datetime_format_entries [datetime_index];
 
 	domain = mono_domain_get ();
 
-	MONO_OBJECT_SETREF (this_obj, AMDesignator, mono_string_new (domain, idx2string (dfe->am_designator)));
-	MONO_OBJECT_SETREF (this_obj, PMDesignator, mono_string_new (domain, idx2string (dfe->pm_designator)));
-	MONO_OBJECT_SETREF (this_obj, TimeSeparator, mono_string_new (domain, idx2string (dfe->time_separator)));
-	MONO_OBJECT_SETREF (this_obj, LongTimePatterns, create_names_array_idx_dynamic (dfe->long_time_patterns,
-			NUM_LONG_TIME_PATTERNS));
-	MONO_OBJECT_SETREF (this_obj, ShortTimePatterns, create_names_array_idx_dynamic (dfe->short_time_patterns,
-			NUM_SHORT_TIME_PATTERNS));
-	this_obj->FirstDayOfWeek = dfe->first_day_of_week;
-	this_obj->CalendarWeekRule = dfe->calendar_week_rule;
+	MONO_HANDLE_SETREF (this_obj_handle, AMDesignator, mono_string_new (domain, idx2string (dfe->am_designator)));
+	MONO_HANDLE_SETREF (this_obj_handle, PMDesignator, mono_string_new (domain, idx2string (dfe->pm_designator)));
+	MONO_HANDLE_SETREF (this_obj_handle, TimeSeparator, mono_string_new (domain, idx2string (dfe->time_separator)));
+	MONO_HANDLE_SETREF (this_obj_handle, LongTimePatterns, create_names_array_idx_dynamic (dfe->long_time_patterns, NUM_LONG_TIME_PATTERNS));
+	MONO_HANDLE_SETREF (this_obj_handle, ShortTimePatterns, create_names_array_idx_dynamic (dfe->short_time_patterns, NUM_SHORT_TIME_PATTERNS));
+	MONO_HANDLE_SET (this_obj_handle, FirstDayOfWeek, dfe->first_day_of_week);
+	MONO_HANDLE_SET (this_obj_handle, CalendarWeekRule, dfe->calendar_week_rule);
+
+	MONO_HANDLE_ARENA_POP;
 }
 
 void
@@ -230,85 +408,87 @@ ves_icall_System_Globalization_CultureData_fill_number_data (MonoNumberFormatInf
 {
 	MonoDomain *domain;
 	const NumberFormatEntry *nfe;
+	MONO_HANDLE_TYPE (MonoNumberFormatInfo) *number_handle;
 
 	g_assert (number_index >= 0);
+
+	MONO_HANDLE_ARENA_PUSH (1);
+
+	number_handle = MONO_HANDLE_NEW (MonoNumberFormatInfo, number);
 
 	nfe = &number_format_entries [number_index];
 
 	domain = mono_domain_get ();
 
-	number->currencyDecimalDigits = nfe->currency_decimal_digits;
-	MONO_OBJECT_SETREF (number, currencyDecimalSeparator, mono_string_new (domain,
-			idx2string (nfe->currency_decimal_separator)));
-	MONO_OBJECT_SETREF (number, currencyGroupSeparator, mono_string_new (domain,
-			idx2string (nfe->currency_group_separator)));
-	MONO_OBJECT_SETREF (number, currencyGroupSizes, create_group_sizes_array (nfe->currency_group_sizes,
-			GROUP_SIZE));
-	number->currencyNegativePattern = nfe->currency_negative_pattern;
-	number->currencyPositivePattern = nfe->currency_positive_pattern;
-	MONO_OBJECT_SETREF (number, currencySymbol, mono_string_new (domain, idx2string (nfe->currency_symbol)));
-	MONO_OBJECT_SETREF (number, naNSymbol, mono_string_new (domain, idx2string (nfe->nan_symbol)));
-	MONO_OBJECT_SETREF (number, negativeInfinitySymbol, mono_string_new (domain,
-			idx2string (nfe->negative_infinity_symbol)));
-	MONO_OBJECT_SETREF (number, negativeSign, mono_string_new (domain, idx2string (nfe->negative_sign)));
-	number->numberDecimalDigits = nfe->number_decimal_digits;
-	MONO_OBJECT_SETREF (number, numberDecimalSeparator, mono_string_new (domain,
-			idx2string (nfe->number_decimal_separator)));
-	MONO_OBJECT_SETREF (number, numberGroupSeparator, mono_string_new (domain, idx2string (nfe->number_group_separator)));
-	MONO_OBJECT_SETREF (number, numberGroupSizes, create_group_sizes_array (nfe->number_group_sizes,
-			GROUP_SIZE));
-	number->numberNegativePattern = nfe->number_negative_pattern;
-	number->percentNegativePattern = nfe->percent_negative_pattern;
-	number->percentPositivePattern = nfe->percent_positive_pattern;
-	MONO_OBJECT_SETREF (number, percentSymbol, mono_string_new (domain, idx2string (nfe->percent_symbol)));
-	MONO_OBJECT_SETREF (number, perMilleSymbol, mono_string_new (domain, idx2string (nfe->per_mille_symbol)));
-	MONO_OBJECT_SETREF (number, positiveInfinitySymbol, mono_string_new (domain,
-			idx2string (nfe->positive_infinity_symbol)));
-	MONO_OBJECT_SETREF (number, positiveSign, mono_string_new (domain, idx2string (nfe->positive_sign)));
+	MONO_HANDLE_SET (number_handle, currencyDecimalDigits, nfe->currency_decimal_digits);
+	MONO_HANDLE_SETREF (number_handle, currencyDecimalSeparator, mono_string_new (domain, idx2string (nfe->currency_decimal_separator)));
+	MONO_HANDLE_SETREF (number_handle, currencyGroupSeparator, mono_string_new (domain, idx2string (nfe->currency_group_separator)));
+	MONO_HANDLE_SETREF (number_handle, currencyGroupSizes, create_group_sizes_array (nfe->currency_group_sizes, GROUP_SIZE));
+	MONO_HANDLE_SET (number_handle, currencyNegativePattern, nfe->currency_negative_pattern);
+	MONO_HANDLE_SET (number_handle, currencyPositivePattern, nfe->currency_positive_pattern);
+	MONO_HANDLE_SETREF (number_handle, currencySymbol, mono_string_new (domain, idx2string (nfe->currency_symbol)));
+	MONO_HANDLE_SETREF (number_handle, naNSymbol, mono_string_new (domain, idx2string (nfe->nan_symbol)));
+	MONO_HANDLE_SETREF (number_handle, negativeInfinitySymbol, mono_string_new (domain, idx2string (nfe->negative_infinity_symbol)));
+	MONO_HANDLE_SETREF (number_handle, negativeSign, mono_string_new (domain, idx2string (nfe->negative_sign)));
+	MONO_HANDLE_SET (number_handle, numberDecimalDigits, nfe->number_decimal_digits);
+	MONO_HANDLE_SETREF (number_handle, numberDecimalSeparator, mono_string_new (domain, idx2string (nfe->number_decimal_separator)));
+	MONO_HANDLE_SETREF (number_handle, numberGroupSeparator, mono_string_new (domain, idx2string (nfe->number_group_separator)));
+	MONO_HANDLE_SETREF (number_handle, numberGroupSizes, create_group_sizes_array (nfe->number_group_sizes, GROUP_SIZE));
+	MONO_HANDLE_SET (number_handle, numberNegativePattern, nfe->number_negative_pattern);
+	MONO_HANDLE_SET (number_handle, percentNegativePattern, nfe->percent_negative_pattern);
+	MONO_HANDLE_SET (number_handle, percentPositivePattern, nfe->percent_positive_pattern);
+	MONO_HANDLE_SETREF (number_handle, percentSymbol, mono_string_new (domain, idx2string (nfe->percent_symbol)));
+	MONO_HANDLE_SETREF (number_handle, perMilleSymbol, mono_string_new (domain, idx2string (nfe->per_mille_symbol)));
+	MONO_HANDLE_SETREF (number_handle, positiveInfinitySymbol, mono_string_new (domain, idx2string (nfe->positive_infinity_symbol)));
+	MONO_HANDLE_SETREF (number_handle, positiveSign, mono_string_new (domain, idx2string (nfe->positive_sign)));
+
+	MONO_HANDLE_ARENA_POP;
 }
 
 static MonoBoolean
-construct_culture (MonoCultureInfo *this_obj, const CultureInfoEntry *ci)
+construct_culture (MONO_HANDLE_TYPE (MonoCultureInfo) *this_obj_handle, const CultureInfoEntry *ci)
 {
-	MonoDomain *domain = mono_domain_get ();
+	MonoDomain *domain;
 
-	this_obj->lcid = ci->lcid;
-	MONO_OBJECT_SETREF (this_obj, name, mono_string_new (domain, idx2string (ci->name)));
-	MONO_OBJECT_SETREF (this_obj, englishname, mono_string_new (domain, idx2string (ci->englishname)));
-	MONO_OBJECT_SETREF (this_obj, nativename, mono_string_new (domain, idx2string (ci->nativename)));
-	MONO_OBJECT_SETREF (this_obj, win3lang, mono_string_new (domain, idx2string (ci->win3lang)));
-	MONO_OBJECT_SETREF (this_obj, iso3lang, mono_string_new (domain, idx2string (ci->iso3lang)));
-	MONO_OBJECT_SETREF (this_obj, iso2lang, mono_string_new (domain, idx2string (ci->iso2lang)));
+	domain = mono_domain_get ();
+
+	MONO_HANDLE_SET (this_obj_handle, lcid, ci->lcid);
+	MONO_HANDLE_SETREF (this_obj_handle, name, mono_string_new (domain, idx2string (ci->name)));
+	MONO_HANDLE_SETREF (this_obj_handle, englishname, mono_string_new (domain, idx2string (ci->englishname)));
+	MONO_HANDLE_SETREF (this_obj_handle, nativename, mono_string_new (domain, idx2string (ci->nativename)));
+	MONO_HANDLE_SETREF (this_obj_handle, win3lang, mono_string_new (domain, idx2string (ci->win3lang)));
+	MONO_HANDLE_SETREF (this_obj_handle, iso3lang, mono_string_new (domain, idx2string (ci->iso3lang)));
+	MONO_HANDLE_SETREF (this_obj_handle, iso2lang, mono_string_new (domain, idx2string (ci->iso2lang)));
 
 	// It's null for neutral cultures
 	if (ci->territory > 0)
-		MONO_OBJECT_SETREF (this_obj, territory, mono_string_new (domain, idx2string (ci->territory)));
-	MONO_OBJECT_SETREF (this_obj, native_calendar_names, create_names_array_idx (ci->native_calendar_names, NUM_CALENDARS));
-	this_obj->parent_lcid = ci->parent_lcid;
-	this_obj->datetime_index = ci->datetime_format_index;
-	this_obj->number_index = ci->number_format_index;
-	this_obj->calendar_type = ci->calendar_type;
-	this_obj->text_info_data = &ci->text_info;
-	
+		MONO_HANDLE_SETREF (this_obj_handle, territory, mono_string_new (domain, idx2string (ci->territory)));
+	MONO_HANDLE_SETREF (this_obj_handle, native_calendar_names, create_names_array_idx (ci->native_calendar_names, NUM_CALENDARS));
+	MONO_HANDLE_SET (this_obj_handle, parent_lcid, ci->parent_lcid);
+	MONO_HANDLE_SET (this_obj_handle, datetime_index, ci->datetime_format_index);
+	MONO_HANDLE_SET (this_obj_handle, number_index, ci->number_format_index);
+	MONO_HANDLE_SET (this_obj_handle, calendar_type, ci->calendar_type);
+	MONO_HANDLE_SET (this_obj_handle, text_info_data, &ci->text_info);
+
 	return TRUE;
 }
 
 static MonoBoolean
-construct_region (MonoRegionInfo *this_obj, const RegionInfoEntry *ri)
+construct_region (MONO_HANDLE_TYPE (MonoRegionInfo) *this_obj_handle, const RegionInfoEntry *ri)
 {
 	MonoDomain *domain = mono_domain_get ();
 
-	this_obj->geo_id = ri->geo_id;
-	MONO_OBJECT_SETREF (this_obj, iso2name, mono_string_new (domain, idx2string (ri->iso2name)));
-	MONO_OBJECT_SETREF (this_obj, iso3name, mono_string_new (domain, idx2string (ri->iso3name)));
-	MONO_OBJECT_SETREF (this_obj, win3name, mono_string_new (domain, idx2string (ri->win3name)));
-	MONO_OBJECT_SETREF (this_obj, english_name, mono_string_new (domain, idx2string (ri->english_name)));
-	MONO_OBJECT_SETREF (this_obj, native_name, mono_string_new (domain, idx2string (ri->native_name)));
-	MONO_OBJECT_SETREF (this_obj, currency_symbol, mono_string_new (domain, idx2string (ri->currency_symbol)));
-	MONO_OBJECT_SETREF (this_obj, iso_currency_symbol, mono_string_new (domain, idx2string (ri->iso_currency_symbol)));
-	MONO_OBJECT_SETREF (this_obj, currency_english_name, mono_string_new (domain, idx2string (ri->currency_english_name)));
-	MONO_OBJECT_SETREF (this_obj, currency_native_name, mono_string_new (domain, idx2string (ri->currency_native_name)));
-	
+	MONO_HANDLE_SET (this_obj_handle, geo_id, ri->geo_id);
+	MONO_HANDLE_SETREF (this_obj_handle, iso2name, mono_string_new (domain, idx2string (ri->iso2name)));
+	MONO_HANDLE_SETREF (this_obj_handle, iso3name, mono_string_new (domain, idx2string (ri->iso3name)));
+	MONO_HANDLE_SETREF (this_obj_handle, win3name, mono_string_new (domain, idx2string (ri->win3name)));
+	MONO_HANDLE_SETREF (this_obj_handle, english_name, mono_string_new (domain, idx2string (ri->english_name)));
+	MONO_HANDLE_SETREF (this_obj_handle, native_name, mono_string_new (domain, idx2string (ri->native_name)));
+	MONO_HANDLE_SETREF (this_obj_handle, currency_symbol, mono_string_new (domain, idx2string (ri->currency_symbol)));
+	MONO_HANDLE_SETREF (this_obj_handle, iso_currency_symbol, mono_string_new (domain, idx2string (ri->iso_currency_symbol)));
+	MONO_HANDLE_SETREF (this_obj_handle, currency_english_name, mono_string_new (domain, idx2string (ri->currency_english_name)));
+	MONO_HANDLE_SETREF (this_obj_handle, currency_native_name, mono_string_new (domain, idx2string (ri->currency_native_name)));
+
 	return TRUE;
 }
 
@@ -489,37 +669,59 @@ ves_icall_System_Globalization_CultureInfo_get_current_locale_name (void)
 }
 
 MonoBoolean
-ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_lcid (MonoCultureInfo *this_obj,
-		gint lcid)
+ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_lcid (MonoCultureInfo *this_obj, gint lcid)
 {
 	const CultureInfoEntry *ci;
-	
+	MonoBoolean ret;
+	MONO_HANDLE_TYPE (MonoCultureInfo) *this_obj_handle;
+
+	MONO_HANDLE_ARENA_PUSH (1);
+
+	this_obj_handle = MONO_HANDLE_NEW (MonoCultureInfo, this_obj);
+
 	ci = culture_info_entry_from_lcid (lcid);
 	if(ci == NULL)
-		return FALSE;
+		ret = FALSE;
+	else
+		ret = construct_culture (this_obj_handle, ci);
 
-	return construct_culture (this_obj, ci);
+	MONO_HANDLE_ARENA_POP;
+
+	return ret;
 }
 
 MonoBoolean
-ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_name (MonoCultureInfo *this_obj,
-		MonoString *name)
+ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_name (MonoCultureInfo *this_obj, MonoString *name)
 {
-	const CultureInfoNameEntry *ne;
-	char *n;
-	
-	n = mono_string_to_utf8 (name);
-	ne = mono_binary_search (n, culture_name_entries, NUM_CULTURE_ENTRIES,
-			sizeof (CultureInfoNameEntry), culture_name_locator);
+	const CultureInfoNameEntry *name_entry;
+	char *name_utf8;
+	MONO_HANDLE_TYPE (MonoCultureInfo) *this_obj_handle;
+	MONO_HANDLE_TYPE (MonoString) *name_handle;
+	MonoBoolean ret;
 
-	if (ne == NULL) {
-		/*g_print ("ne (%s) is null\n", n);*/
-		g_free (n);
-		return FALSE;
+	MONO_HANDLE_ARENA_PUSH (2);
+
+	this_obj_handle = MONO_HANDLE_NEW (MonoCultureInfo, this_obj);
+	name_handle = MONO_HANDLE_NEW (MonoString, name);
+
+	MONO_PREPARE_CRITICAL_SECTION;
+	name_utf8 = mono_string_to_utf8 (mono_handle_obj (name_handle));
+	MONO_FINISH_CRITICAL_SECTION;
+
+	name_entry = mono_binary_search (name_utf8, culture_name_entries, NUM_CULTURE_ENTRIES, sizeof (CultureInfoNameEntry), culture_name_locator);
+
+	if (name_entry == NULL) {
+		/*g_print ("name_entry (%s) is null\n", name_utf8);*/
+		ret = FALSE;
+	} else {
+		ret = construct_culture (this_obj_handle, &culture_entries [name_entry->culture_entry_index]);
 	}
-	g_free (n);
 
-	return construct_culture (this_obj, &culture_entries [ne->culture_entry_index]);
+	g_free (name_utf8);
+
+	MONO_HANDLE_ARENA_POP;
+
+	return ret;
 }
 /*
 MonoBoolean
@@ -537,46 +739,66 @@ ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_specif
 }
 */
 MonoBoolean
-ves_icall_System_Globalization_RegionInfo_construct_internal_region_from_lcid (MonoRegionInfo *this_obj,
-		gint lcid)
+ves_icall_System_Globalization_RegionInfo_construct_internal_region_from_lcid (MonoRegionInfo *this_obj, gint lcid)
 {
 	const RegionInfoEntry *ri;
-	
+	MONO_HANDLE_TYPE (MonoRegionInfo) *this_obj_handle;
+	MonoBoolean ret;
+
+	MONO_HANDLE_ARENA_PUSH (1);
+
+	this_obj_handle = MONO_HANDLE_NEW (MonoRegionInfo, this_obj);
+
 	ri = region_info_entry_from_lcid (lcid);
 	if(ri == NULL)
-		return FALSE;
+		ret = FALSE;
+	else
+		ret = construct_region (this_obj_handle, ri);
 
-	return construct_region (this_obj, ri);
+	MONO_HANDLE_ARENA_POP;
+
+	return ret;
 }
 
 MonoBoolean
-ves_icall_System_Globalization_RegionInfo_construct_internal_region_from_name (MonoRegionInfo *this_obj,
-		MonoString *name)
+ves_icall_System_Globalization_RegionInfo_construct_internal_region_from_name (MonoRegionInfo *this_obj, MonoString *name)
 {
-	const RegionInfoNameEntry *ne;
-	char *n;
-	
-	n = mono_string_to_utf8 (name);
-	ne = mono_binary_search (n, region_name_entries, NUM_REGION_ENTRIES,
-		sizeof (RegionInfoNameEntry), region_name_locator);
+	const RegionInfoNameEntry *name_entry;
+	char *name_utf8;
+	MONO_HANDLE_TYPE (MonoRegionInfo) *this_obj_handle;
+	MONO_HANDLE_TYPE (MonoString) *name_handle;
+	MonoBoolean ret;
 
-	if (ne == NULL) {
-		/*g_print ("ne (%s) is null\n", n);*/
-		g_free (n);
-		return FALSE;
+	MONO_HANDLE_ARENA_PUSH (2);
+
+	this_obj_handle = MONO_HANDLE_NEW (MonoRegionInfo, this_obj);
+	name_handle = MONO_HANDLE_NEW (MonoString, name);
+
+	MONO_PREPARE_CRITICAL_SECTION;
+	name_utf8 = mono_string_to_utf8 (mono_handle_obj (name_handle));
+	MONO_FINISH_CRITICAL_SECTION;
+
+	name_entry = mono_binary_search (name_utf8, region_name_entries, NUM_REGION_ENTRIES, sizeof (RegionInfoNameEntry), region_name_locator);
+
+	if (name_entry == NULL) {
+		/*g_print ("name_entry (%s) is null\n", name_utf8);*/
+		ret = FALSE;
+	} else {
+		ret = construct_region (this_obj_handle, &region_entries [name_entry->region_entry_index]);
 	}
-	g_free (n);
 
-	return construct_region (this_obj, &region_entries [ne->region_entry_index]);
+	g_free (name_utf8);
+
+	MONO_HANDLE_ARENA_POP;
+
+	return ret;
 }
 
 MonoArray*
-ves_icall_System_Globalization_CultureInfo_internal_get_cultures (MonoBoolean neutral,
-		MonoBoolean specific, MonoBoolean installed)
+ves_icall_System_Globalization_CultureInfo_internal_get_cultures (MonoBoolean neutral, MonoBoolean specific, MonoBoolean installed)
 {
 	MonoArray *ret;
 	MonoClass *klass;
-	MonoCultureInfo *culture;
 	MonoDomain *domain;
 	const CultureInfoEntry *ci;
 	gint i, len;
@@ -602,35 +824,58 @@ ves_icall_System_Globalization_CultureInfo_internal_get_cultures (MonoBoolean ne
 
 	ret = mono_array_new (domain, klass, len);
 
-	if (len == 0)
-		return ret;
+	if (len != 0) {
+		len = 0;
+		if (neutral)
+			mono_array_setref (ret, len++, NULL);
 
-	len = 0;
-	if (neutral)
-		mono_array_setref (ret, len++, NULL);
+		for (i = 0; i < NUM_CULTURE_ENTRIES; i++) {
+			ci = &culture_entries [i];
+			is_neutral = ci->territory == 0;
+			if ((neutral && is_neutral) || (specific && !is_neutral)) {
+				MONO_HANDLE_TYPE (MonoCultureInfo) *culture_handle;
 
-	for (i = 0; i < NUM_CULTURE_ENTRIES; i++) {
-		ci = &culture_entries [i];
-		is_neutral = ci->territory == 0;
-		if ((neutral && is_neutral) || (specific && !is_neutral)) {
-			culture = (MonoCultureInfo *) mono_object_new (domain, klass);
-			mono_runtime_object_init ((MonoObject *) culture);
-			construct_culture (culture, ci);
-			culture->use_user_override = TRUE;
-			mono_array_setref (ret, len++, culture);
+				MONO_HANDLE_ARENA_PUSH (1);
+
+				culture_handle = MONO_HANDLE_NEW (MonoCultureInfo, mono_object_new (domain, klass));
+
+				MONO_PREPARE_CRITICAL_SECTION;
+				mono_runtime_object_init ((MonoObject*) mono_handle_obj (culture_handle));
+				MONO_FINISH_CRITICAL_SECTION;
+
+				construct_culture (culture_handle, ci);
+				MONO_HANDLE_SET (culture_handle, use_user_override, TRUE);
+
+				MONO_PREPARE_CRITICAL_SECTION;
+				mono_array_setref (ret, len++, mono_handle_obj (culture_handle));
+				MONO_FINISH_CRITICAL_SECTION;
+
+				MONO_HANDLE_ARENA_POP;
+			}
 		}
 	}
 
 	return ret;
 }
 
-int ves_icall_System_Globalization_CompareInfo_internal_compare (MonoCompareInfo *this_obj, MonoString *str1, gint32 off1, gint32 len1, MonoString *str2, gint32 off2, gint32 len2, gint32 options)
+int
+ves_icall_System_Globalization_CompareInfo_internal_compare (MonoCompareInfo *this_obj, MonoString *str1, gint32 off1, gint32 len1, MonoString *str2, gint32 off2, gint32 len2, gint32 options)
 {
+	MONO_HANDLE_TYPE (MonoString) *str1_handle, *str2_handle;
+	int ret;
+
+	MONO_HANDLE_ARENA_PUSH (2);
+
+	str1_handle = MONO_HANDLE_NEW (MonoString, str1);
+	str2_handle = MONO_HANDLE_NEW (MonoString, str2);
+
 	/* Do a normal ascii string compare, as we only know the
-	 * invariant locale if we dont have ICU
-	 */
-	return(string_invariant_compare (str1, off1, len1, str2, off2, len2,
-					 options));
+	 * invariant locale if we dont have ICU */
+	ret = string_invariant_compare (str1_handle, off1, len1, str2_handle, off2, len2, options);
+
+	MONO_HANDLE_ARENA_POP;
+
+	return ret;
 }
 
 void ves_icall_System_Globalization_CompareInfo_assign_sortkey (MonoCompareInfo *this_obj, MonoSortKey *key, MonoString *source, gint32 options)
@@ -638,14 +883,11 @@ void ves_icall_System_Globalization_CompareInfo_assign_sortkey (MonoCompareInfo 
 	MonoArray *arr;
 	gint32 keylen, i;
 
-	keylen=mono_string_length (source);
-	
-	arr=mono_array_new (mono_domain_get (), mono_get_byte_class (),
-			    keylen);
-	for(i=0; i<keylen; i++) {
+	keylen = mono_string_length (source);
+	arr = mono_array_new (mono_domain_get (), mono_get_byte_class (), keylen);
+	for(i=0; i<keylen; i++)
 		mono_array_set (arr, guint8, i, mono_string_chars (source)[i]);
-	}
-	
+
 	MONO_OBJECT_SETREF (key, key, arr);
 }
 
@@ -674,21 +916,20 @@ MonoString *ves_icall_System_String_InternalReplace_Str_Comp (MonoString *this_o
 	return(string_invariant_replace (this_obj, old, new));
 }
 
-static gint32 string_invariant_compare_char (gunichar2 c1, gunichar2 c2,
-					     gint32 options)
+static gint32 string_invariant_compare_char (gunichar2 c1, gunichar2 c2, gint32 options)
 {
 	gint32 result;
 
 	/* Ordinal can not be mixed with other options, and must return the difference, not only -1, 0, 1 */
 	if (options & CompareOptions_Ordinal) 
 		return (gint32) c1 - c2;
-	
+
 	if (options & CompareOptions_IgnoreCase) {
 		GUnicodeType c1type, c2type;
 
 		c1type = g_unichar_type (c1);
 		c2type = g_unichar_type (c2);
-	
+
 		result = (gint32) (c1type != G_UNICODE_LOWERCASE_LETTER ? g_unichar_tolower(c1) : c1) -
 			(c2type != G_UNICODE_LOWERCASE_LETTER ? g_unichar_tolower(c2) : c2);
 	} else {
@@ -709,10 +950,8 @@ static gint32 string_invariant_compare_char (gunichar2 c1, gunichar2 c2,
 	return ((result < 0) ? -1 : (result > 0) ? 1 : 0);
 }
 
-static gint32 string_invariant_compare (MonoString *str1, gint32 off1,
-					gint32 len1, MonoString *str2,
-					gint32 off2, gint32 len2,
-					gint32 options)
+static gint32
+string_invariant_compare (MONO_HANDLE_TYPE (MonoString) *str1_handle, gint32 off1, gint32 len1, MONO_HANDLE_TYPE (MonoString) *str2_handle, gint32 off2, gint32 len2, gint32 options)
 {
 	/* c translation of C# code from old string.cs.. :) */
 	gint32 length;
@@ -721,14 +960,16 @@ static gint32 string_invariant_compare (MonoString *str1, gint32 off1,
 	gunichar2 *ustr2;
 	gint32 pos;
 
-	if(len1 >= len2) {
+	if (len1 >= len2) {
 		length=len1;
 	} else {
 		length=len2;
 	}
 
-	ustr1 = mono_string_chars(str1)+off1;
-	ustr2 = mono_string_chars(str2)+off2;
+	MONO_PREPARE_CRITICAL_SECTION;
+	ustr1 = mono_string_chars (mono_handle_obj (str1_handle)) + off1;
+	ustr2 = mono_string_chars (mono_handle_obj (str2_handle)) + off2;
+	MONO_FINISH_CRITICAL_SECTION;
 
 	pos = 0;
 
@@ -736,8 +977,7 @@ static gint32 string_invariant_compare (MonoString *str1, gint32 off1,
 		if (pos >= len1 || pos >= len2)
 			break;
 
-		charcmp = string_invariant_compare_char(ustr1[pos], ustr2[pos],
-							options);
+		charcmp = string_invariant_compare_char(ustr1[pos], ustr2[pos], options);
 		if (charcmp != 0) {
 			return(charcmp);
 		}
@@ -747,8 +987,7 @@ static gint32 string_invariant_compare (MonoString *str1, gint32 off1,
 	 * need to check the last char
 	 */
 	if (pos == length) {
-		return(string_invariant_compare_char(ustr1[pos - 1],
-						     ustr2[pos - 1], options));
+		return string_invariant_compare_char(ustr1[pos - 1], ustr2[pos - 1], options);
 	}
 
 	/* Test if one of the strings has been compared to the end */
@@ -763,7 +1002,7 @@ static gint32 string_invariant_compare (MonoString *str1, gint32 off1,
 	}
 
 	/* if not, check our last char only.. (can this happen?) */
-	return(string_invariant_compare_char(ustr1[pos], ustr2[pos], options));
+	return string_invariant_compare_char(ustr1[pos], ustr2[pos], options);
 }
 
 static MonoString *string_invariant_replace (MonoString *me,
