@@ -58,6 +58,8 @@ mono_threads_state_poll (void)
 		return;
 	THREADS_SUSPEND_DEBUG ("FINISH SELF SUSPEND OF %p\n", mono_thread_info_get_tid (info));
 
+	g_assert (!info->inside_critical_region);
+
 	/* Fast check for pending suspend requests */
 	if (!(info->thread_state & (STATE_ASYNC_SUSPEND_REQUESTED | STATE_SELF_SUSPEND_REQUESTED)))
 		return;

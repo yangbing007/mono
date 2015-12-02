@@ -35,15 +35,6 @@
 #include "mono-proclib.h"
 #include <mono/utils/mono-threads.h>
 
-
-#define BEGIN_CRITICAL_SECTION do { \
-	MonoThreadInfo *__info = mono_thread_info_current_unchecked (); \
-	if (__info) __info->inside_critical_region = TRUE;	\
-
-#define END_CRITICAL_SECTION \
-	if (__info) __info->inside_critical_region = FALSE;	\
-} while (0)	\
-
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
 #endif
@@ -320,7 +311,7 @@ mono_valloc (void *addr, size_t length, int flags)
 	mflags |= MAP_ANONYMOUS;
 	mflags |= MAP_PRIVATE;
 
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	ptr = mmap (addr, length, prot, mflags, -1, 0);
 	if (ptr == MAP_FAILED) {
 		int fd = open ("/dev/zero", O_RDONLY);
@@ -329,7 +320,7 @@ mono_valloc (void *addr, size_t length, int flags)
 			close (fd);
 		}
 	}
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 
 	if (ptr == MAP_FAILED)
 		return NULL;
@@ -349,9 +340,9 @@ int
 mono_vfree (void *addr, size_t length)
 {
 	int res;
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	res = munmap (addr, length);
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 	return res;
 }
 
@@ -387,9 +378,9 @@ mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_hand
 	if (flags & MONO_MMAP_32BIT)
 		mflags |= MAP_32BIT;
 
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	ptr = mmap (0, length, prot, mflags, fd, offset);
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 	if (ptr == MAP_FAILED)
 		return NULL;
 	*ret_handle = (void*)length;
@@ -411,9 +402,9 @@ mono_file_unmap (void *addr, void *handle)
 {
 	int res;
 
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	res = munmap (addr, (size_t)handle);
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 
 	return res;
 }
@@ -622,9 +613,9 @@ mono_shared_area (void)
 		shm_unlink (buf);
 		close (fd);
 	}
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	res = mmap (NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 
 	if (res == MAP_FAILED) {
 		shm_unlink (buf);
@@ -677,9 +668,9 @@ mono_shared_area_for_pid (void *pid)
 	fd = shm_open (buf, O_RDONLY, S_IRUSR|S_IRGRP);
 	if (fd == -1)
 		return NULL;
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	res = mmap (NULL, size, PROT_READ, MAP_SHARED, fd, 0);
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 
 	if (res == MAP_FAILED) {
 		close (fd);
@@ -695,9 +686,9 @@ void
 mono_shared_area_unload  (void *area)
 {
 	/* FIXME: currently we load only a page */
-	BEGIN_CRITICAL_SECTION;
+	MONO_PREPARE_CRITICAL_SECTION;
 	munmap (area, mono_pagesize ());
-	END_CRITICAL_SECTION;
+	MONO_FINISH_CRITICAL_SECTION;
 }
 
 int

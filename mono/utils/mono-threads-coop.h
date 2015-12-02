@@ -75,6 +75,17 @@ mono_threads_safepoint (void)
 		mono_threads_reset_blocking_end (__reset_cookie, &__dummy);	\
 	} while (0)
 
+#define MONO_PREPARE_CRITICAL_SECTION	\
+	do {	\
+		MonoThreadInfo *__info = mono_thread_info_current_unchecked ();	\
+		if (__info)	\
+			__info->inside_critical_region = TRUE
+
+#define MONO_FINISH_CRITICAL_SECTION	\
+		if (__info)	\
+			__info->inside_critical_region = FALSE;	\
+	} while (0)
+
 G_END_DECLS
 
 #endif
