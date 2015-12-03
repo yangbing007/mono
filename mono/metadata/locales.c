@@ -5,11 +5,12 @@
  *	Dick Porter (dick@ximian.com)
  *	Mohammad DAMT (mdamt@cdl2000.com)
  *	Marek Safar (marek.safar@gmail.com)
+ *      Aleksey Kliger (aleksey@xamarin.com)
  *
  * Copyright 2003 Ximian, Inc (http://www.ximian.com)
  * Copyright 2004-2009 Novell, Inc (http://www.novell.com)
  * (C) 2003 PT Cakram Datalingga Duaribu  http://www.cdl2000.com
- * Copyright (C) 2012 Xamarin Inc (http://www.xamarin.com)
+ * Copyright (C) 2012-2015 Xamarin Inc (http://www.xamarin.com)
  */
 
 #include <config.h>
@@ -21,12 +22,14 @@
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/exception.h>
+#include <mono/metadata/icall-define.h>
 #include <mono/metadata/monitor.h>
 #include <mono/metadata/locales.h>
 #include <mono/metadata/culture-info.h>
 #include <mono/metadata/culture-info-tables.h>
 #include <mono/metadata/handle.h>
 #include <mono/utils/bsearch.h>
+#include <mono/utils/checked-build.h>
 
 #ifndef DISABLE_NORMALIZATION
 #include <mono/metadata/normalization-tables.h>
@@ -448,6 +451,7 @@ ves_icall_System_Globalization_CultureData_fill_number_data (MonoNumberFormatInf
 static MonoBoolean
 construct_culture (MONO_HANDLE_TYPE (MonoCultureInfo) *this_obj_handle, const CultureInfoEntry *ci)
 {
+	MONO_REQ_GC_UNSAFE_MODE;
 	MonoDomain *domain;
 
 	domain = mono_domain_get ();
@@ -476,6 +480,7 @@ construct_culture (MONO_HANDLE_TYPE (MonoCultureInfo) *this_obj_handle, const Cu
 static MonoBoolean
 construct_region (MONO_HANDLE_TYPE (MonoRegionInfo) *this_obj_handle, const RegionInfoEntry *ri)
 {
+	MONO_REQ_GC_UNSAFE_MODE;
 	MonoDomain *domain = mono_domain_get ();
 
 	MONO_HANDLE_SET (this_obj_handle, geo_id, ri->geo_id);
@@ -668,27 +673,18 @@ ves_icall_System_Globalization_CultureInfo_get_current_locale_name (void)
 	return ret;
 }
 
-MonoBoolean
-ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_lcid (MonoCultureInfo *this_obj, gint lcid)
-{
-	const CultureInfoEntry *ci;
-	MonoBoolean ret;
-	MONO_HANDLE_TYPE (MonoCultureInfo) *this_obj_handle;
-
-	MONO_HANDLE_ARENA_PUSH (1);
-
-	this_obj_handle = MONO_HANDLE_NEW (MonoCultureInfo, this_obj);
-
-	ci = culture_info_entry_from_lcid (lcid);
-	if(ci == NULL)
-		ret = FALSE;
-	else
-		ret = construct_culture (this_obj_handle, ci);
-
-	MONO_HANDLE_ARENA_POP;
-
-	return ret;
-}
+MONO_ICALL_DEFINE(VAL(MonoBoolean, ret),
+		  ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_lcid,
+		  (REF(MonoCultureInfo, this_obj_handle),
+		   VAL(gint, lcid)),
+		  {
+			  const CultureInfoEntry *ci;
+			  ci = culture_info_entry_from_lcid(lcid);
+			  if(ci == NULL)
+				  ret = FALSE;
+			  else
+				  ret = construct_culture (this_obj_handle, ci);
+		  })
 
 MonoBoolean
 ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_name (MonoCultureInfo *this_obj, MonoString *name)
@@ -716,6 +712,27 @@ ves_icall_System_Globalization_CultureInfo_construct_internal_locale_from_name (
 	} else {
 		ret = construct_culture (this_obj_handle, &culture_entries [name_entry->culture_entry_index]);
 	}
+	/* char *n; */
+	/* // TODO this could do with a convenience API so I can move name to a local handle: */
+	/* //   1. get a global handle from a local handle */
+        /* //   2. convert global handle to utf8 */
+	/* n = mono_string_to_utf8 (name); */
+	/* name = NULL; */
+	/* const CultureInfoNameEntry *ne; */
+	/* MONO_ICALL_PUSH(hthis); */
+	/* hthis = MONO_LH_TAKE_FROM_UNSAFE (this_obj); */
+	/* MONO_PREPARE_BLOCKING; */
+	/* ne = mono_binary_search (n, culture_name_entries, NUM_CULTURE_ENTRIES, */
+	/* 		sizeof (CultureInfoNameEntry), culture_name_locator); */
+
+	/* g_free (n); */
+	/* MONO_FINISH_BLOCKING; */
+	/* this_obj = (MonoCultureInfo*) MONO_LH_RELEASE_TO_UNSAFE(hthis); */
+	/* MONO_ICALL_POP(); */
+
+	/* if (ne == NULL) */
+        /*         /\*g_print ("ne (%s) is null\n", n);*\/ */
+	/* 	return FALSE; */
 
 	g_free (name_utf8);
 

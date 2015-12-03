@@ -41,4 +41,23 @@
 #define MONO_PP_VA_FOREACH_1(Action, Arg, ...) Action(Arg) MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_0, Action, (__VA_ARGS__))
 #define MONO_PP_VA_FOREACH_0(...) /*empty*/
 
+/* MONO_PP_VA_FOREACH(Action, e1, ..., eN) expands to Action(e1), Action(e2), ..., Action(eN)
+ * (Note the commas separating each action, and that there's no trailing comma.)
+ */
+#define MONO_PP_VA_FOREACH_CS(Action, ...) MONO_PP_RESCAN_MACRO(MONO_PP_VA_MS_WORKAROUND(MONO_PP_CONCATENATE(MONO_PP_VA_FOREACH_CS_, MONO_PP_VA_COUNT_ARGS(__VA_ARGS__)), Action, (__VA_ARGS__)))
+
+#define MONO_PP_VA_FOREACH_CS_10(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_9, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_9(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_8, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_8(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_7, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_7(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_6, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_6(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_5, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_5(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_4, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_4(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_3, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_3(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_2, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_2(Action, Arg, ...) Action(Arg), MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_1, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_1(Action, Arg, ...) Action(Arg) MONO_PP_VA_MS_WORKAROUND(MONO_PP_VA_FOREACH_CS_0, Action, (__VA_ARGS__))
+#define MONO_PP_VA_FOREACH_CS_0(...) /*empty*/
+
+
+
 #endif /*_MONO_UTILS_MONO_PP_MONO_PP_VA_FOREACH_H*/

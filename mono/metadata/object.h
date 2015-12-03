@@ -3,6 +3,7 @@
 
 #include <mono/metadata/class.h>
 #include <mono/utils/mono-error.h>
+#include <mono/utils/mono-compiler.h>
 
 MONO_BEGIN_DECLS
 

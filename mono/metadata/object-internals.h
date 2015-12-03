@@ -15,6 +15,7 @@
 #include "mono/utils/mono-tls.h"
 #include "mono/utils/mono-coop-mutex.h"
 #include "mono/utils/mono-pp-foreach.h"
+#include "mono/utils/mono-pp-bool.h"
 
 #if 1
 #ifdef __GNUC__
