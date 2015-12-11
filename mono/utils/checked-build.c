@@ -545,16 +545,29 @@ check_mempool_may_reference_mempool (void *from_ptr, void *to_ptr, gboolean requ
 	}
 }
 
+static gboolean
+check_mempool_violations_enabled ()
+{
+	static int enabled = -1;
+	if (G_UNLIKELY(enabled == -1))
+		enabled = g_getenv ("MONO_ENABLE_MEMPOOL_AUDIT") != NULL ? TRUE : FALSE;
+	return enabled;
+}
+
 void
 check_metadata_store (void *from, void *to)
 {
-    check_mempool_may_reference_mempool (from, to, FALSE);
+	if (G_LIKELY(!check_mempool_violations_enabled()))
+		return;
+	check_mempool_may_reference_mempool (from, to, FALSE);
 }
 
 void
 check_metadata_store_local (void *from, void *to)
 {
-    check_mempool_may_reference_mempool (from, to, TRUE);
+	if (G_LIKELY(!check_mempool_violations_enabled()))
+		return;
+	check_mempool_may_reference_mempool (from, to, TRUE);
 }
 
 #endif /* CHECKED_BUILD */
