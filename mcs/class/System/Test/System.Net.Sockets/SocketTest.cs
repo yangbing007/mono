@@ -4337,7 +4337,13 @@ namespace MonoTests.System.Net.Sockets
 			byte[] bytes = new byte [1024];
 
 			Socket listener = (Socket)AsyncCall.AsyncState;
-			Socket client = listener.EndAccept (AsyncCall);
+			Socket client = null;
+			try {
+				client = listener.EndAccept (AsyncCall);
+			} catch  (ObjectDisposedException ex) {
+				// listener was closed elsewhere
+				return;
+			}
  
 			client.Receive (bytes, bytes.Length, 0);
 			client.Close ();
