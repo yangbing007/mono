@@ -67,6 +67,8 @@ static MonoMethod* find_method_in_metadata (MonoClass *klass, const char *name, 
 static int generic_array_methods (MonoClass *klass);
 static void setup_generic_array_ifaces (MonoClass *klass, MonoClass *iface, MonoMethod **methods, int pos);
 
+static void mono_class_setup_methods_checked (MonoClass *klass, MonoError *oerror);
+
 static MonoMethod* mono_class_get_virtual_methods (MonoClass* klass, gpointer *iter);
 static char* mono_assembly_name_from_token (MonoImage *image, guint32 type_token);
 static void mono_field_resolve_type (MonoClassField *field, MonoError *error);
@@ -2176,8 +2178,34 @@ create_array_method (MonoClass *klass, const char *name, MonoMethodSignature *si
 void
 mono_class_setup_methods (MonoClass *klass)
 {
+	MonoError error;
+	mono_class_setup_methods_checked (klass, &error);
+	if (!mono_error_ok (&error)) {
+		mono_class_set_failure (klass, MONO_EXCEPTION_TYPE_LOAD, g_strdup (mono_error_get_message (&error)));
+		mono_error_cleanup (&error);
+	}
+}
+
+/*
+ * mono_class_setup_methods_checked:
+ * @class: a class
+ * @error: set on error
+ *
+ *   Initializes the 'methods' array in CLASS.
+ * Calling this method should be avoided if possible since it allocates a lot
+ * of long-living MonoMethod structures.
+ * Methods belonging to an interface are assigned a sequential slot starting
+ * from 0.
+ *
+ * On failure this function sets klass->exception_type
+ */
+static void
+mono_class_setup_methods_checked (MonoClass *klass, MonoError *oerror)
+{
 	int i, count;
 	MonoMethod **methods;
+
+	mono_error_init (oerror);
 
 	if (klass->methods)
 		return;
@@ -2191,7 +2219,7 @@ mono_class_setup_methods (MonoClass *klass)
 			mono_class_setup_methods (gklass);
 		if (mono_class_has_failure (gklass)) {
 			/* FIXME make exception_data less opaque so it's possible to dup it here */
-			mono_class_set_failure (klass, MONO_EXCEPTION_TYPE_LOAD, g_strdup ("Generic type definition failed to load"));
+			mono_error_set_type_load_class (oerror, klass, "Generic type definition failed to load");
 			return;
 		}
 
@@ -2204,8 +2232,7 @@ mono_class_setup_methods (MonoClass *klass)
 				gklass->methods [i], klass, mono_class_get_context (klass), &error);
 			if (!mono_error_ok (&error)) {
 				char *method = mono_method_full_name (gklass->methods [i], TRUE);
-				mono_class_set_failure (klass, MONO_EXCEPTION_TYPE_LOAD, g_strdup_printf ("Could not inflate method %s due to %s", method, mono_error_get_message (&error)));
-
+				mono_error_set_type_load_class (oerror, klass, "Could not inflate method %s due to %s", method, mono_error_get_message (&error));
 				g_free (method);
 				mono_error_cleanup (&error);
 				return;				
@@ -2310,7 +2337,8 @@ mono_class_setup_methods (MonoClass *klass)
 			int idx = mono_metadata_translate_token_index (klass->image, MONO_TABLE_METHOD, klass->method.first + i + 1);
 			methods [i] = mono_get_method_checked (klass->image, MONO_TOKEN_METHOD_DEF | idx, klass, NULL, &error);
 			if (!methods [i]) {
-				mono_class_set_failure (klass, MONO_EXCEPTION_TYPE_LOAD, g_strdup_printf ("Could not load method %d due to %s", i, mono_error_get_message (&error)));
+				if (mono_error_ok (oerror))
+					mono_error_set_type_load_class (oerror, klass, "Could not load method %d due to %s", i, mono_error_get_message (&error));
 				mono_error_cleanup (&error);
 			}
 		}
