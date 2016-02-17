@@ -324,7 +324,8 @@ struct _MonoClass {
 	guint fields_inited : 1; /* fields is initialized */
 	guint setup_fields_called : 1; /* to prevent infinite loops in setup_fields */
 
-	guint8     exception_type;	/* MONO_EXCEPTION_* */
+	/* exception type stored in image->class_exception_types keyed on this klass pointer */
+	guint has_exception_type : 1;
 
 	/* Additional information about the exception */
 	/* Stored as property MONO_CLASS_PROP_EXCEPTION_DATA */
@@ -1500,7 +1501,9 @@ static inline guint8
 mono_class_get_failure (MonoClass *klass)
 {
 	g_assert (klass != NULL);
-	return klass->exception_type;
+	if (!klass->has_exception_type)
+		return 0;
+	return GPOINTER_TO_UINT(g_hash_table_lookup(klass->image->class_exception_types, klass));
 }
 
 static inline gboolean

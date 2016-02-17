@@ -395,6 +395,8 @@ struct _MonoImage {
 	MonoGenericContainer *anonymous_generic_class_container;
 	MonoGenericContainer *anonymous_generic_method_container;
 
+	/* Indexed by MonoClass pointers to MonoExceptionType. */
+	GHashTable *class_exception_types;
 	/*
 	 * No other runtime locks must be taken while holding this lock.
 	 * It's meant to be used only to mutate and query structures part of this image.

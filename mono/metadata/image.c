@@ -729,6 +729,8 @@ mono_image_init (MonoImage *image)
 	image->method_signatures = g_hash_table_new (NULL, NULL);
 
 	image->property_hash = mono_property_hash_new ();
+
+	image->class_exception_types = g_hash_table_new (NULL, NULL);
 }
 
 #if G_BYTE_ORDER != G_LITTLE_ENDIAN
@@ -1769,6 +1771,7 @@ mono_image_close_except_pools (MonoImage *image)
 	if (image->methodref_cache)
 		g_hash_table_destroy (image->methodref_cache);
 	mono_internal_hash_table_destroy (&image->class_cache);
+	g_hash_table_destroy (image->class_exception_types);
 	mono_conc_hashtable_destroy (image->field_cache);
 	if (image->array_cache) {
 		g_hash_table_foreach (image->array_cache, free_array_cache_entry, NULL);

@@ -9983,7 +9983,8 @@ mono_class_set_failure (MonoClass *klass, guint32 ex_type, void *ex_data)
 		return FALSE;
 
 	mono_loader_lock ();
-	klass->exception_type = ex_type;
+	klass->has_exception_type = TRUE;
+	g_hash_table_insert (klass->image->class_exception_types, klass, GUINT_TO_POINTER(ex_type));
 	if (ex_data)
 		mono_image_property_insert (klass->image, klass, MONO_CLASS_PROP_EXCEPTION_DATA, ex_data);
 	mono_loader_unlock ();
