@@ -7426,13 +7426,11 @@ ves_icall_Remoting_RemotingServices_GetVirtualMethod (
 }
 
 ICALL_EXPORT void
-ves_icall_System_Runtime_Activation_ActivationServices_EnableProxyActivation_internal (MonoType *type, MonoBoolean enable)
+ves_icall_System_Runtime_Activation_ActivationServices_EnableProxyActivation_internal (MonoClass *klass, MonoBoolean enable)
 {
 	MonoError error;
-	MonoClass *klass;
 	MonoVTable* vtable;
 
-	klass = mono_class_from_mono_type (type);
 	vtable = mono_class_vtable_full (mono_domain_get (), klass, &error);
 	if (!is_ok (&error)) {
 		mono_error_set_pending_exception (&error);
@@ -7453,26 +7451,18 @@ ves_icall_System_Runtime_Activation_ActivationServices_EnableProxyActivation_int
 #endif
 
 ICALL_EXPORT MonoObject *
-ves_icall_System_Runtime_Activation_ActivationServices_AllocateUninitializedClassInstance (MonoReflectionType *type)
+ves_icall_System_Runtime_Activation_ActivationServices_AllocateUninitializedClassInstance_internal (MonoClass *klass)
 {
 	MonoError error;
-	MonoClass *klass;
 	MonoDomain *domain;
 	MonoObject *ret;
 	
-	domain = mono_object_domain (type);
-	klass = mono_class_from_mono_type (type->type);
-	mono_class_init_checked (klass, &error);
-	if (mono_error_set_pending_exception (&error))
-		return NULL;
+	domain = mono_domain_get (); 
 
-	if (MONO_CLASS_IS_INTERFACE (klass) || (klass->flags & TYPE_ATTRIBUTE_ABSTRACT)) {
-		mono_set_pending_exception (mono_get_exception_argument ("type", "Type cannot be instantiated"));
-		return NULL;
-	}
+	g_assert (!MONO_CLASS_IS_INTERFACE (klass) && !(klass->flags & TYPE_ATTRIBUTE_ABSTRACT)
+		  && klass->rank <= 1);
 
-	if (klass->rank >= 1) {
-		g_assert (klass->rank == 1);
+	if (klass->rank == 1) {
 		ret = (MonoObject *) mono_array_new_checked (domain, klass->element_class, 0, &error);
 		mono_error_set_pending_exception (&error);
 		return ret;

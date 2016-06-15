@@ -233,14 +233,27 @@ namespace System.Runtime.Remoting.Activation
 
 		// Allocates an uninitialized instance. It never creates proxies.
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		public static extern object AllocateUninitializedClassInstance (Type type);
+		public static extern object AllocateUninitializedClassInstance_internal (Mono.RuntimeClassHandle klass);
+
+		public static object AllocateUninitializedClassInstance (Type type)
+		{
+			if (type.IsInterface || type.IsAbstract)
+				throw new ArgumentException ("Type cannot be instantiated", "type");
+			var classHandle = Mono.RuntimeClassHandle.FromTypeEnsureInited (type.TypeHandle);
+			if (type.IsArray && type.GetArrayRank () >= 1) {
+				if (type.GetArrayRank () != 1)
+					throw new NotSupportedException ("Cannot allocate an uninitialized multidimensional array");
+			};
+			return AllocateUninitializedClassInstance_internal (classHandle);
+		}
 
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		internal extern static void EnableProxyActivation_internal (RuntimeTypeHandle type, bool enable);
+		internal extern static void EnableProxyActivation_internal (Mono.RuntimeClassHandle klass, bool enable);
 
 		public static void EnableProxyActivation (Type type, bool enable)
 		{
-			EnableProxyActivation_internal (type.TypeHandle, enable);
+			var classHandle = Mono.RuntimeClassHandle.FromTypeEnsureInited (type.TypeHandle);
+			EnableProxyActivation_internal (classHandle, enable);
 		}
 	}
 }
