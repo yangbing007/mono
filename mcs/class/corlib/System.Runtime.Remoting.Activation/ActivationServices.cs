@@ -236,6 +236,11 @@ namespace System.Runtime.Remoting.Activation
 		public static extern object AllocateUninitializedClassInstance (Type type);
 
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
-		public extern static void EnableProxyActivation (Type type, bool enable);
+		internal extern static void EnableProxyActivation_internal (RuntimeTypeHandle type, bool enable);
+
+		public static void EnableProxyActivation (Type type, bool enable)
+		{
+			EnableProxyActivation_internal (type.TypeHandle, enable);
+		}
 	}
 }
