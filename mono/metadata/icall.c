@@ -1535,6 +1535,17 @@ ves_icall_Mono_RuntimeClassHandle_GetTypeFromClass (MonoClass *klass)
 	return mono_class_get_type (klass);
 }
 
+ICALL_EXPORT MonoClass*
+ves_icall_Mono_RuntimeClassHandle_FromTypeEnsureInited (MonoType *type)
+{
+	MonoError error;
+	MonoClass *klass = mono_class_from_mono_type (type);
+	mono_class_init_checked (klass, &error);
+	if (mono_error_set_pending_exception (&error))
+		return NULL;
+	return klass;
+}
+
 /* System.TypeCode */
 typedef enum {
 	TYPECODE_EMPTY,

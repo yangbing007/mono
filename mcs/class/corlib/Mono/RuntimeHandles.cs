@@ -70,6 +70,9 @@ namespace Mono {
 		{
 			unsafe { return new RuntimeTypeHandle (GetTypeFromClass (value)); }
 		}
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal extern static RuntimeClassHandle FromTypeEnsureInited (RuntimeTypeHandle h);
 	}
 
 	internal struct RuntimeRemoteClassHandle {
