@@ -2757,9 +2757,9 @@ emit_init_method (EmitContext *ctx)
 	indexes [1] = LLVMConstInt (LLVMInt32Type (), cfg->method_index, FALSE);
 	inited_var = LLVMBuildLoad (builder, LLVMBuildGEP (builder, ctx->module->inited_var, indexes, 2, ""), "is_inited");
 
-	args [0] = inited_var;
-	args [1] = LLVMConstInt (LLVMInt8Type (), 1, FALSE);
-	inited_var = LLVMBuildCall (ctx->builder, get_intrinsic (ctx, "llvm.expect.i8"), args, 2, "");
+	args [0] = LLVMBuildZExt (builder, inited_var, LLVMInt32Type (), "");
+	args [1] = LLVMConstInt (LLVMInt32Type (), 1, FALSE);
+	inited_var = LLVMBuildCall (ctx->builder, get_intrinsic (ctx, "llvm.expect.i32"), args, 2, "");
 
 	cmp = LLVMBuildICmp (builder, LLVMIntEQ, inited_var, LLVMConstInt (LLVMTypeOf (inited_var), 0, FALSE), "");
 
@@ -7799,6 +7799,7 @@ typedef enum {
 	INTRINS_COS,
 	INTRINS_SQRT,
 	INTRINS_FABS,
+	INTRINS_EXPECT_I32,
 	INTRINS_EXPECT_I8,
 	INTRINS_EXPECT_I1,
 #if defined(TARGET_AMD64) || defined(TARGET_X86)
@@ -7881,6 +7882,7 @@ static IntrinsicDesc intrinsics[] = {
 	{INTRINS_SQRT, "llvm.sqrt.f64"},
 	/* This isn't an intrinsic, instead llvm seems to special case it by name */
 	{INTRINS_FABS, "fabs"},
+	{INTRINS_EXPECT_I32, "llvm.expect.i32"},
 	{INTRINS_EXPECT_I8, "llvm.expect.i8"},
 	{INTRINS_EXPECT_I1, "llvm.expect.i1"},
 #if defined(TARGET_AMD64) || defined(TARGET_X86)
@@ -8003,6 +8005,9 @@ add_intrinsic (LLVMModuleRef module, int id)
 		AddFunc (module, name, LLVMDoubleType (), params, 1);
 		break;
 	}
+	case INTRINS_EXPECT_I32:
+		AddFunc2 (module, name, LLVMInt32Type (), LLVMInt32Type (), LLVMInt32Type ());
+		break;
 	case INTRINS_EXPECT_I8:
 		AddFunc2 (module, name, LLVMInt8Type (), LLVMInt8Type (), LLVMInt8Type ());
 		break;
