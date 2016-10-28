@@ -3298,6 +3298,9 @@ if test "x$host" != "x$target"; then
 	aarch64-*)
 		TARGET=ARM64
 		;;
+	*-emscripten)
+		TARGET=EMSCRIPTEN;
+		;;
 	*)
 		AC_MSG_ERROR([Cross compiling is not supported for target $target])
 	esac
