@@ -785,6 +785,11 @@ typedef struct ucontext MonoContext;
 		: "memory"			\
 	)
 
+#elif defined(HOST_EMSCRIPTEN)
+
+// Do nothing?
+typedef int MonoContext;
+
 #else
 
 #error "Implement mono-context for the current arch"

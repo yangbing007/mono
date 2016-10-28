@@ -23,6 +23,8 @@
 #include "mini-arm64.h"
 #elif defined(__mips__)
 #include "mini-mips.h"
+#elif defined (TARGET_EMSCRIPTEN)
+#include "mini-emscripten.h"
 #else
 #error add arch specific include file in mini-arch.h
 #endif

@@ -3141,6 +3141,12 @@ case "$host" in
 		ACCESS_UNALIGNED="yes"
 		CFLAGS="$CFLAGS -mbackchain -D__USE_STRING_INLINES"
 		;;
+	*-emscripten)
+		TARGET=EMSCRIPTEN;
+
+		# _GNU_SOURCE is needed for ucred, setresuid, getresuid to be defined
+		CFLAGS="$CFLAGS -D_GNU_SOURCE"
+		;;
 esac
 
 HOST=$TARGET
@@ -3341,6 +3347,9 @@ SPARC)
 SPARC64)
 	AC_DEFINE(TARGET_SPARC64, 1, [...])
 	;;
+EMSCRIPTEN)
+	AC_DEFINE(TARGET_EMSCRIPTEN, 1, [...])
+	;;
 esac
 
 case "$HOST" in
@@ -3377,6 +3386,9 @@ SPARC)
 	;;
 SPARC64)
 	AC_DEFINE(HOST_SPARC64, 1, [...])
+	;;
+EMSCRIPTEN)
+	AC_DEFINE(HOST_EMSCRIPTEN, 1, [...])
 	;;
 esac
 

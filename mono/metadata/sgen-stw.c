@@ -358,6 +358,7 @@ sgen_is_thread_in_current_stw (SgenThreadInfo *info, int *reason)
 static void
 sgen_unified_suspend_stop_world (void)
 {
+#ifndef HOST_EMSCRIPTEN
 	int restart_counter;
 	int sleep_duration = -1;
 
@@ -480,6 +481,7 @@ sgen_unified_suspend_stop_world (void)
 			g_assert (!info->client_info.suspend_done || info == mono_thread_info_current ());
 		}
 	} FOREACH_THREAD_END
+#endif
 }
 
 static void

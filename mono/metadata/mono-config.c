@@ -85,6 +85,9 @@
 #elif defined(mips) || defined(__mips) || defined(_mips)
 #define CONFIG_CPU "mips"
 #define CONFIG_WORDSIZE "32"
+#elif defined(HOST_EMSCRIPTEN)
+#define CONFIG_CPU "asmjs"
+#define CONFIG_WORDSIZE (sizeof(void *) == 4 ? "32" : "64")
 #else
 #error Unknown CPU
 #define CONFIG_CPU "unknownCPU"

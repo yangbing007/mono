@@ -4696,6 +4696,9 @@ typedef struct {
 static SuspendThreadResult
 async_abort_critical (MonoThreadInfo *info, gpointer ud)
 {
+#ifdef HOST_EMSCRIPTEN
+	return KeepSuspended;
+#else
 	AbortThreadData *data = (AbortThreadData *)ud;
 	MonoInternalThread *thread = data->thread;
 	MonoJitInfo *ji = NULL;
@@ -4740,6 +4743,7 @@ async_abort_critical (MonoThreadInfo *info, gpointer ud)
 
 		return MonoResumeThread;
 	}
+#endif
 }
 
 static void
@@ -4788,6 +4792,9 @@ typedef struct {
 static SuspendThreadResult
 async_suspend_critical (MonoThreadInfo *info, gpointer ud)
 {
+#ifdef HOST_EMSCRIPTEN
+	return KeepSuspended;
+#else
 	SuspendThreadData *data = (SuspendThreadData *)ud;
 	MonoInternalThread *thread = data->thread;
 	MonoJitInfo *ji = NULL;
@@ -4810,6 +4817,7 @@ async_suspend_critical (MonoThreadInfo *info, gpointer ud)
 
 		return MonoResumeThread;
 	}
+#endif
 }
 
 /* LOCKING: called with @thread synch_cs held, and releases it */

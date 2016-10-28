@@ -368,6 +368,10 @@ ia64_sources = \
 	exceptions-ia64.c	\
 	tramp-ia64.c
 
+emscripten_sources = \
+	mini-emscripten.c \
+	mini-emscripten.h
+
 darwin_sources = \
 	mini-darwin.c
 
@@ -574,6 +578,10 @@ arch_sources = $(ia64_sources)
 arch_built = cpu-ia64.h
 arch_define=__ia64__
 endif
+
+#if HOST_EMSCRIPTEN
+arch_sources = $(emscripten_sources)
+#endif
 
 if HOST_WIN32
 os_sources = $(windows_sources)

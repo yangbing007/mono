@@ -404,7 +404,7 @@ gpointer InterlockedReadPointer(volatile gpointer *src)
 	return(ret);
 }
 
-void InterlockedWrite(volatile gint8 *dst, gint8 val)
+void InterlockedWrite8(volatile gint8 *dst, gint8 val)
 {
 	int thr_ret;
 	
