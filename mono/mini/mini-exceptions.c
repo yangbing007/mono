@@ -283,6 +283,10 @@ static MonoJitInfo *
 find_jit_info (MonoDomain *domain, MonoJitTlsData *jit_tls, MonoJitInfo *res, MonoJitInfo *prev_ji, MonoContext *ctx, 
 			   MonoContext *new_ctx, MonoLMF **lmf, gboolean *managed)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return NULL;
+#else
 	StackFrameInfo frame;
 	MonoJitInfo *ji;
 	gboolean err;
@@ -340,6 +344,7 @@ find_jit_info (MonoDomain *domain, MonoJitTlsData *jit_tls, MonoJitInfo *res, Mo
 		g_assert_not_reached ();
 		return NULL;
 	}
+#endif
 }
 
 /* mono_find_jit_info:
@@ -356,6 +361,10 @@ mono_find_jit_info (MonoDomain *domain, MonoJitTlsData *jit_tls, MonoJitInfo *re
 		    MonoContext *new_ctx, char **trace, MonoLMF **lmf, int *native_offset,
 		    gboolean *managed)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return NULL;
+#else
 	gboolean managed2;
 	gpointer ip = MONO_CONTEXT_GET_IP (ctx);
 	MonoJitInfo *ji;
@@ -412,6 +421,7 @@ mono_find_jit_info (MonoDomain *domain, MonoJitTlsData *jit_tls, MonoJitInfo *re
 	}
 
 	return ji;
+#endif
 }
 
 /*
@@ -437,6 +447,10 @@ mono_find_jit_info_ext (MonoDomain *domain, MonoJitTlsData *jit_tls,
 						mgreg_t **save_locations,
 						StackFrameInfo *frame)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return FALSE;
+#else
 	gboolean err;
 	gpointer ip = MONO_CONTEXT_GET_IP (ctx);
 	MonoJitInfo *ji;
@@ -524,6 +538,7 @@ mono_find_jit_info_ext (MonoDomain *domain, MonoJitTlsData *jit_tls,
 	}
 
 	return TRUE;
+#endif
 }
 
 /*
@@ -532,6 +547,10 @@ mono_find_jit_info_ext (MonoDomain *domain, MonoJitTlsData *jit_tls,
 static gpointer
 get_generic_info_from_stack_frame (MonoJitInfo *ji, MonoContext *ctx)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return NULL;
+#else
 	MonoGenericJitInfo *gi;
 	MonoMethod *method;
 	gpointer info;
@@ -585,6 +604,7 @@ get_generic_info_from_stack_frame (MonoJitInfo *ji, MonoContext *ctx)
 
 		return this_obj->vtable;
 	}
+#endif
 }
 
 /*
@@ -821,6 +841,9 @@ mono_runtime_walk_stack_with_ctx (MonoJitStackWalk func, MonoContext *start_ctx,
 void
 mono_walk_stack_with_ctx (MonoJitStackWalk func, MonoContext *start_ctx, MonoUnwindOptions unwind_options, void *user_data)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+#else
 	MonoContext extra_ctx;
 	MonoThreadInfo *thread = mono_thread_info_current_unchecked ();
 	MONO_ARCH_CONTEXT_DEF
@@ -840,6 +863,7 @@ mono_walk_stack_with_ctx (MonoJitStackWalk func, MonoContext *start_ctx, MonoUnw
 	}
 
 	mono_walk_stack_full (func, start_ctx, mono_domain_get (), (MonoJitTlsData *)thread->jit_data, mono_get_lmf (), unwind_options, user_data);
+#endif
 }
 
 /**
@@ -905,6 +929,9 @@ mono_walk_stack (MonoJitStackWalk func, MonoUnwindOptions options, void *user_da
 static void
 mono_walk_stack_full (MonoJitStackWalk func, MonoContext *start_ctx, MonoDomain *domain, MonoJitTlsData *jit_tls, MonoLMF *lmf, MonoUnwindOptions unwind_options, gpointer user_data)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+#else
 	gint il_offset, i;
 	MonoContext ctx, new_ctx;
 	StackFrameInfo frame;
@@ -1002,6 +1029,7 @@ mono_walk_stack_full (MonoJitStackWalk func, MonoContext *start_ctx, MonoDomain 
 		
 		ctx = new_ctx;
 	}
+#endif
 }
 
 MonoBoolean
@@ -1010,6 +1038,10 @@ ves_icall_get_frame_info (gint32 skip, MonoBoolean need_file_info,
 			  gint32 *iloffset, gint32 *native_offset,
 			  MonoString **file, gint32 *line, gint32 *column)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return FALSE;
+#else
 	MonoError error;
 	MonoDomain *domain = mono_domain_get ();
 	MonoJitTlsData *jit_tls = (MonoJitTlsData *)mono_native_tls_get_value (mono_jit_tls_id);
@@ -1113,6 +1145,7 @@ ves_icall_get_frame_info (gint32 skip, MonoBoolean need_file_info,
 	mono_debug_free_source_location (location);
 
 	return TRUE;
+#endif
 }
 
 static MonoClass*
@@ -1360,6 +1393,10 @@ setup_stack_trace (MonoException *mono_ex, GSList *dynamic_methods, MonoArray *i
 static gboolean
 mono_handle_exception_internal_first_pass (MonoContext *ctx, MonoObject *obj, gint32 *out_filter_idx, MonoJitInfo **out_ji, MonoJitInfo **out_prev_ji, MonoObject *non_exception)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return FALSE;
+#else
 	MonoError error;
 	MonoDomain *domain = mono_domain_get ();
 	MonoJitInfo *ji = NULL;
@@ -1576,6 +1613,7 @@ mono_handle_exception_internal_first_pass (MonoContext *ctx, MonoObject *obj, gi
 	}
 
 	g_assert_not_reached ();
+#endif
 }
 
 /**
@@ -1587,6 +1625,10 @@ mono_handle_exception_internal_first_pass (MonoContext *ctx, MonoObject *obj, gi
 static gboolean
 mono_handle_exception_internal (MonoContext *ctx, MonoObject *obj, gboolean resume, MonoJitInfo **out_ji)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return FALSE;
+#else
 	MonoError error;
 	MonoDomain *domain = mono_domain_get ();
 	MonoJitInfo *ji, *prev_ji;
@@ -1969,6 +2011,7 @@ mono_handle_exception_internal (MonoContext *ctx, MonoObject *obj, gboolean resu
 	}
 
 	g_assert_not_reached ();
+#endif
 }
 
 /**
@@ -1985,6 +2028,9 @@ mono_handle_exception_internal (MonoContext *ctx, MonoObject *obj, gboolean resu
 void
 mono_debugger_run_finally (MonoContext *start_ctx)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+#else
 	static int (*call_filter) (MonoContext *, gpointer) = NULL;
 	MonoDomain *domain = mono_domain_get ();
 	MonoJitTlsData *jit_tls = (MonoJitTlsData *)mono_native_tls_get_value (mono_jit_tls_id);
@@ -2010,6 +2056,7 @@ mono_debugger_run_finally (MonoContext *start_ctx)
 			call_filter (&ctx, ei->handler_start);
 		}
 	}
+#endif
 }
 
 /**
@@ -2560,6 +2607,9 @@ mono_print_thread_dump_from_ctx (MonoContext *ctx)
 void
 mono_resume_unwind (MonoContext *ctx)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+#else
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	MonoJitTlsData *jit_tls = (MonoJitTlsData *)mono_native_tls_get_value (mono_jit_tls_id);
@@ -2572,6 +2622,7 @@ mono_resume_unwind (MonoContext *ctx)
 	mono_handle_exception_internal (&new_ctx, (MonoObject *)jit_tls->resume_state.ex_obj, TRUE, NULL);
 
 	mono_restore_context (&new_ctx);
+#endif
 }
 
 #ifdef MONO_ARCH_HAVE_HANDLER_BLOCK_GUARD
@@ -2791,6 +2842,10 @@ mono_thread_state_init_from_monoctx (MonoThreadUnwindState *ctx, MonoContext *mc
 gboolean
 mono_thread_state_init_from_current (MonoThreadUnwindState *ctx)
 {
+#if HOST_EMSCRIPTEN
+	g_assert_not_reached ();
+	return FALSE;
+#else
 	MonoThreadInfo *thread = mono_thread_info_current_unchecked ();
 	MONO_ARCH_CONTEXT_DEF
 
@@ -2811,6 +2866,7 @@ mono_thread_state_init_from_current (MonoThreadUnwindState *ctx)
 	ctx->unwind_data [MONO_UNWIND_DATA_JIT_TLS] = thread->jit_data;
 	ctx->valid = TRUE;
 	return TRUE;
+#endif
 }
 
 static void

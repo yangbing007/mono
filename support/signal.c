@@ -105,7 +105,7 @@ int Mono_Posix_FromRealTimeSignum (int offset, int *r)
 #endif /* defined (SIGRTMIN) && defined (SIGRTMAX) */
 }
 
-#ifndef HOST_WIN32
+#if !defined(HOST_WIN32) && !defined(HOST_EMSCRIPTEN)
 
 // Atomicity rules: Fields of signal_info read or written by the signal handler
 // (see UnixSignal.cs) should be read and written using atomic functions.

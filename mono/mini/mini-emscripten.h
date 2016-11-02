@@ -5,12 +5,20 @@
 
 // Because there is no JIT on emscripten, most of these defines do nothing.
 
-#define DISABLE_JIT 1
+#ifndef DISABLE_JIT
+#error Cannot build for Emscripten with JIT.
+#endif
 
 #define MONO_MAX_IREGS 0
 #define MONO_MAX_FREGS 0
+#define MONO_ARCH_CALLEE_REGS 0
+#define MONO_ARCH_CALLEE_FREGS 0
+#define MONO_ARCH_CALLEE_SAVED_FREGS 0
+#define MONO_ARCH_CALLEE_SAVED_REGS 0
+#define MONO_ARCH_VTABLE_REG 0
 
 struct MonoLMF {
+	gpointer    previous_lmf;
 };
 
 typedef struct {

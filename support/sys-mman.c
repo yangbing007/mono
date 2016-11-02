@@ -101,7 +101,7 @@ Mono_Posix_Syscall_munlock (void *start, mph_size_t len)
 	return munlock (start, (size_t) len);
 }
 
-#ifdef HAVE_MREMAP
+#if defined(HAVE_MREMAP) && !defined(HOST_EMSCRIPTEN)
 void*
 Mono_Posix_Syscall_mremap (void *old_address, mph_size_t old_size, 
 		mph_size_t new_size, guint64 flags)
