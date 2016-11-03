@@ -131,7 +131,9 @@ and reduce the number of casts drastically.
 /* If this is defined, use the signals backed on Mach. Debug only as signals can't be made usable on OSX. */
 // #define USE_SIGNALS_ON_MACH
 
-#if defined (_POSIX_VERSION) || defined (__native_client__)
+#if defined (HOST_EMSCRIPTEN)
+#define USE_EMSCRIPTEN_BACKEND
+#elif defined (_POSIX_VERSION) || defined (__native_client__)
 #if defined (__MACH__) && !defined (USE_SIGNALS_ON_MACH)
 #define USE_MACH_BACKEND
 #else

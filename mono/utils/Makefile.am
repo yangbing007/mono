@@ -122,6 +122,7 @@ monoutils_sources = \
 	mono-threads-netbsd.c	\
 	mono-threads-openbsd.c	\
 	mono-threads-android.c	\
+	mono-threads-emscripten.c \
 	mono-threads.h	\
 	mono-threads-api.h	\
 	mono-threads-coop.c	\
