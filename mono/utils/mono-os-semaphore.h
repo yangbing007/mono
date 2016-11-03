@@ -176,6 +176,38 @@ retry:
 		goto retry;
 }
 
+#elif defined(HOST_EMSCRIPTEN)
+
+typedef int MonoSemType;
+
+static inline void
+mono_os_sem_init (MonoSemType *sem, int value)
+{
+	*sem = 0;
+}
+
+static inline void
+mono_os_sem_destroy (MonoSemType *sem)
+{
+}
+
+static inline int
+mono_os_sem_wait (MonoSemType *sem, MonoSemFlags flags)
+{
+	g_error ("%s: cannot wait on semaphore in emscripten, your partner thread does not exist", __func__);
+}
+
+static inline MonoSemTimedwaitRet
+mono_os_sem_timedwait (MonoSemType *sem, guint32 timeout_ms, MonoSemFlags flags)
+{
+	g_error ("%s: cannot wait on semaphore in emscripten, your partner thread does not exist", __func__);
+}
+
+static inline void
+mono_os_sem_post (MonoSemType *sem)
+{
+}
+
 #elif !defined(HOST_WIN32) && defined(HAVE_SEMAPHORE_H)
 
 typedef sem_t MonoSemType;
