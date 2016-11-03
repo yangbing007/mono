@@ -26,16 +26,7 @@ typedef struct {
 
 #define MONO_ARCH_INIT_TOP_LMF_ENTRY(...)
 
-#if 0
+void
+mono_hwcap_arch_init (void);
 
-#define MONO_SAVED_GREGS 0
-#define MONO_SAVED_FREGS 0
-
-
-#define IREG_SIZE	8
-#define FREG_SIZE	8
-typedef gfloat		mips_freg;
-
-#endif
-
-#endif /* __MONO_MINI_MIPS_H__ */  
+#endif /* __MONO_MINI_EMSCRIPTEN_H__ */
