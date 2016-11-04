@@ -141,7 +141,9 @@ alloc_sb (Descriptor *desc)
 		mono_valloc (NULL, desc->block_size, prot_flags_for_activate (TRUE), desc->heap->account_type) :
 		mono_valloc_aligned (desc->block_size, desc->block_size, prot_flags_for_activate (TRUE), desc->heap->account_type);
 
+#ifndef HOST_EMSCRIPTEN
 	g_assert (sb_header == sb_header_for_addr (sb_header, desc->block_size));
+#endif
 
 	*(Descriptor**)sb_header = desc;
 	//g_print ("sb %p for %p\n", sb_header, desc);

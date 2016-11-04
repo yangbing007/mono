@@ -2581,7 +2581,7 @@ compute_llvm_code_range (MonoAotModule *amodule, guint8 **code_start, guint8 **c
 		*code_start = (guint8 *)get_method (-1);
 		*code_end = (guint8 *)get_method (-2);
 
-		g_assert (*code_end > *code_start);
+//		g_assert (*code_end > *code_start);
 		return;
 	}
 

@@ -347,6 +347,7 @@ register_thread (MonoThreadInfo *info, gpointer baseptr)
 	mono_thread_info_set_tid (info, mono_native_thread_id_get ());
 	info->small_id = small_id;
 
+#ifndef HOST_EMSCRIPTEN
 	mono_os_sem_init (&info->resume_semaphore, 0);
 
 	/*set TLS early so SMR works */
@@ -382,10 +383,13 @@ register_thread (MonoThreadInfo *info, gpointer baseptr)
 	*/
 	mono_threads_transition_attach (info);
 	mono_thread_info_suspend_lock ();
+#endif
+
 	/*If this fail it means a given thread has been registered twice, which doesn't make sense. */
 	result = mono_thread_info_insert (info);
 	g_assert (result);
 	mono_thread_info_suspend_unlock ();
+
 	return info;
 }
 
@@ -576,9 +580,16 @@ mono_threads_attach_tools_thread (void)
 	info->tools_thread = TRUE;
 }
 
+static int q = 0;
+
 MonoThreadInfo*
 mono_thread_info_attach (void *baseptr)
 {
+	g_warning("ATT\n");
+	if (q)
+		abort();
+	q++;
+
 	MonoThreadInfo *info;
 	if (!mono_threads_inited)
 	{

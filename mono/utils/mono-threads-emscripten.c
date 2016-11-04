@@ -31,7 +31,9 @@ mono_threads_suspend_free (MonoThreadInfo *info)
 void
 mono_threads_platform_get_stack_bounds (guint8 **staddr, size_t *stsize)
 {
-	g_assert_not_reached ();
+	// Standard for "cannot determine"
+	*staddr = NULL;
+	*stsize = (size_t)-1;
 }
 
 // TODO: Could possibly go into a NO_SIGNALS with TvOS?
