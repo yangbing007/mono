@@ -961,7 +961,6 @@ static
 void
 mono_gc_init_finalizer_thread (void)
 {
-	g_error("YUP YOU GOT HERE\n");
 	MonoError error;
 	gc_thread = mono_thread_create_internal (mono_domain_get (), finalizer_thread, NULL, FALSE, 0, &error);
 	mono_error_assert_ok (&error);

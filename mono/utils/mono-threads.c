@@ -389,7 +389,6 @@ register_thread (MonoThreadInfo *info, gpointer baseptr)
 	result = mono_thread_info_insert (info);
 	g_assert (result);
 	mono_thread_info_suspend_unlock ();
-
 	return info;
 }
 
@@ -580,15 +579,19 @@ mono_threads_attach_tools_thread (void)
 	info->tools_thread = TRUE;
 }
 
-static int q = 0;
+#ifndef HOST_EMSCRIPTEN
+static int attachTries = 0;
+#endif
 
 MonoThreadInfo*
 mono_thread_info_attach (void *baseptr)
 {
-	g_warning("ATT\n");
-	if (q)
+#ifndef HOST_EMSCRIPTEN
+	g_warning("Called mono_thread_info_attach twice. Because TLS is currently broken, this will shortly crash. Halting early so we get a nice clean stack:\n");
+	if (attachTries)
 		abort();
-	q++;
+	attachTries++;
+#endif
 
 	MonoThreadInfo *info;
 	if (!mono_threads_inited)

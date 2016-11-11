@@ -60,7 +60,6 @@ If @free_node_func is null the caller is responsible for releasing node memory.
 void
 mono_lls_init (MonoLinkedListSet *list, void (*free_node_func)(void *))
 {
-	g_warning("LLS initing\n");
 	list->head = NULL;
 	list->free_node_func = free_node_func;
 }
@@ -73,7 +72,6 @@ Returns true if a node with key @key was found.
 gboolean
 mono_lls_find (MonoLinkedListSet *list, MonoThreadHazardPointers *hp, uintptr_t key)
 {
-	g_warning("LLS finding %p\n", key);
 	MonoLinkedListSetNode *cur, *next;
 	MonoLinkedListSetNode **prev;
 	uintptr_t cur_key;
@@ -139,7 +137,6 @@ resposibility to release memory.
 gboolean
 mono_lls_insert (MonoLinkedListSet *list, MonoThreadHazardPointers *hp, MonoLinkedListSetNode *value)
 {
-	g_warning("LLS adding %p\n", value->key);
 	MonoLinkedListSetNode *cur, **prev;
 	/*We must do a store barrier before inserting 
 	to make sure all values in @node are globally visible.*/

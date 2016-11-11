@@ -301,7 +301,6 @@ check_path_env (void)
 {
 	const char* path;
 	path = g_getenv ("MONO_PATH");
-	g_warning("MONO_PATH %s\n", path);
 #ifdef __native_client__
 	if (!path)
 		path = nacl_mono_path;
