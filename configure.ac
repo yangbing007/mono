@@ -365,7 +365,6 @@ AC_DEFINE(HAVE_CLASSIC_WINAPI_SUPPORT, 1, [Use classic Windows API support])
 AC_DEFINE(HAVE_UWP_WINAPI_SUPPORT, 0, [Don't use UWP Windows API support])
 
 AC_SUBST(extra_runtime_ldflags)
-AM_CONDITIONAL(HOST_EMSCRIPTEN, test x$host_emscripten = xyes)
 AM_CONDITIONAL(HOST_WIN32, test x$host_win32 = xyes)
 AM_CONDITIONAL(TARGET_WIN32, test x$target_win32 = xyes)
 AM_CONDITIONAL(PLATFORM_LINUX, echo x$target_os | grep -q linux)
@@ -4035,6 +4034,7 @@ AM_CONDITIONAL(BUILD_MCS, [test x$cross_compiling = xno && test x$enable_mcs_bui
 
 libmono_ldflags="$libmono_ldflags $LIBS"
 
+AM_CONDITIONAL(HOST_EMSCRIPTEN, test x$host_emscripten = xyes)
 AM_CONDITIONAL(MIPS_GCC, test ${TARGET}${ac_cv_prog_gcc} = MIPSyes)
 AM_CONDITIONAL(MIPS_SGI, test ${TARGET}${ac_cv_prog_gcc} = MIPSno)
 AM_CONDITIONAL(SPARC, test x$TARGET = xSPARC)
