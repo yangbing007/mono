@@ -579,14 +579,14 @@ mono_threads_attach_tools_thread (void)
 	info->tools_thread = TRUE;
 }
 
-#ifndef HOST_EMSCRIPTEN
+#ifdef HOST_EMSCRIPTEN
 static int attachTries = 0;
 #endif
 
 MonoThreadInfo*
 mono_thread_info_attach (void *baseptr)
 {
-#ifndef HOST_EMSCRIPTEN
+#ifdef HOST_EMSCRIPTEN
 	g_warning("Called mono_thread_info_attach twice. Because TLS is currently broken, this will shortly crash. Halting early so we get a nice clean stack:\n");
 	if (attachTries)
 		abort();

@@ -88,6 +88,7 @@ has_dtrace=no
 parallel_mark=yes
 ikvm_native=yes
 
+host_emscripten=no
 host_win32=no
 target_win32=no
 platform_android=no
@@ -364,6 +365,7 @@ AC_DEFINE(HAVE_CLASSIC_WINAPI_SUPPORT, 1, [Use classic Windows API support])
 AC_DEFINE(HAVE_UWP_WINAPI_SUPPORT, 0, [Don't use UWP Windows API support])
 
 AC_SUBST(extra_runtime_ldflags)
+AM_CONDITIONAL(HOST_EMSCRIPTEN, test x$host_emscripten = xyes)
 AM_CONDITIONAL(HOST_WIN32, test x$host_win32 = xyes)
 AM_CONDITIONAL(TARGET_WIN32, test x$target_win32 = xyes)
 AM_CONDITIONAL(PLATFORM_LINUX, echo x$target_os | grep -q linux)
@@ -3143,6 +3145,7 @@ case "$host" in
 		;;
 	*-emscripten)
 		TARGET=EMSCRIPTEN;
+		host_emscripten=yes
 
 		# _GNU_SOURCE is needed for ucred, setresuid, getresuid to be defined
 		CFLAGS="$CFLAGS -D_GNU_SOURCE"

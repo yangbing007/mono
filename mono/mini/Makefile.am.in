@@ -579,9 +579,9 @@ arch_built = cpu-ia64.h
 arch_define=__ia64__
 endif
 
-#if HOST_EMSCRIPTEN
+if HOST_EMSCRIPTEN
 arch_sources = $(emscripten_sources)
-#endif
+endif
 
 if HOST_WIN32
 os_sources = $(windows_sources)
