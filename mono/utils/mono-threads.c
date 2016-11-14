@@ -587,9 +587,10 @@ MonoThreadInfo*
 mono_thread_info_attach (void *baseptr)
 {
 #ifdef HOST_EMSCRIPTEN
-	g_warning("Called mono_thread_info_attach twice. Because TLS is currently broken, this will shortly crash. Halting early so we get a nice clean stack:\n");
-	if (attachTries)
+	if (attachTries) {
+		g_warning("Called mono_thread_info_attach twice. Because TLS is currently broken, this will shortly crash. Halting early so we get a nice clean stack:\n");
 		abort();
+	}
 	attachTries++;
 #endif
 
