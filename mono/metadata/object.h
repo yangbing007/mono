@@ -26,7 +26,13 @@ typedef struct _MonoDynamicImage MonoDynamicImage;
 typedef struct _MonoReflectionMethodBody MonoReflectionMethodBody;
 typedef struct _MonoAppContext MonoAppContext;
 
-typedef struct _MonoObject {
+#ifdef __HEAPGUARD__
+#define MONO_MANAGED_HEAP(Type) __attribute__((__region(1))) Type
+#else
+#define MONO_MANAGED_HEAP(Type) Type
+#endif
+
+typedef struct MONO_MANAGED_HEAP(_MonoObject) {
 	MonoVTable *vtable;
 	MonoThreadsSync *synchronisation;
 } MonoObject;
