@@ -1,5 +1,6 @@
-/*
- * mini.c: The new Mono code generator.
+/**
+ * \file
+ * The new Mono code generator.
  *
  * Authors:
  *   Paolo Molaro (lupus@ximian.com)
@@ -47,6 +48,7 @@
 #include <mono/metadata/mempool-internals.h>
 #include <mono/metadata/attach.h>
 #include <mono/metadata/runtime.h>
+#include <mono/metadata/attrdefs.h>
 #include <mono/utils/mono-math.h>
 #include <mono/utils/mono-compiler.h>
 #include <mono/utils/mono-counters.h>
@@ -59,7 +61,6 @@
 #include <mono/utils/dtrace.h>
 #include <mono/utils/mono-threads.h>
 #include <mono/utils/mono-threads-coop.h>
-#include <mono/io-layer/io-layer.h>
 
 #include "mini.h"
 #include "seq-points.h"
@@ -76,6 +77,7 @@
 #include "debugger-agent.h"
 #include "llvm-runtime.h"
 #include "mini-llvm.h"
+#include "lldb.h"
 
 MonoTraceSpec *mono_jit_trace_calls;
 MonoMethodDesc *mono_inject_async_exc_method;
@@ -84,6 +86,10 @@ MonoMethodDesc *mono_break_at_bb_method;
 int mono_break_at_bb_bb_num;
 gboolean mono_do_x86_stack_align = TRUE;
 gboolean mono_using_xdebug;
+
+/* Counters */
+static guint32 discarded_code;
+static double discarded_jit_time;
 
 #define mono_jit_lock() mono_os_mutex_lock (&jit_mutex)
 #define mono_jit_unlock() mono_os_mutex_unlock (&jit_mutex)
@@ -139,12 +145,6 @@ mono_emit_unwind_op (MonoCompile *cfg, int when, int tag, int reg, int val)
 		}
 	}
 }
-
-#define MONO_INIT_VARINFO(vi,id) do { \
-	(vi)->range.first_use.pos.bid = 0xffff; \
-	(vi)->reg = -1; \
-        (vi)->idx = (id); \
-} while (0)
 
 /**
  * mono_unlink_bblock:
@@ -365,6 +365,8 @@ handle_enum:
 	case MONO_TYPE_TYPEDBYREF:
 		return OP_STOREV_MEMBASE;
 	case MONO_TYPE_GENERICINST:
+		if (MONO_CLASS_IS_SIMD (cfg, mono_class_from_mono_type (type)))
+			return OP_STOREX_MEMBASE;
 		type = &type->data.generic_class->container_class->byval_arg;
 		goto handle_enum;
 	case MONO_TYPE_VAR:
@@ -419,6 +421,8 @@ mono_type_to_load_membase (MonoCompile *cfg, MonoType *type)
 	case MONO_TYPE_TYPEDBYREF:
 		return OP_LOADV_MEMBASE;
 	case MONO_TYPE_GENERICINST:
+		if (MONO_CLASS_IS_SIMD (cfg, mono_class_from_mono_type (type)))
+			return OP_LOADX_MEMBASE;
 		if (mono_type_generic_inst_is_valuetype (type))
 			return OP_LOADV_MEMBASE;
 		else
@@ -671,8 +675,10 @@ mono_compile_create_var_for_vreg (MonoCompile *cfg, MonoType *type, int opcode, 
 	
 	cfg->varinfo [num] = inst;
 
-	MONO_INIT_VARINFO (&cfg->vars [num], num);
-	MONO_VARINFO (cfg, num)->vreg = vreg;
+	cfg->vars [num].idx = num;
+	cfg->vars [num].vreg = vreg;
+	cfg->vars [num].range.first_use.pos.bid = 0xffff;
+	cfg->vars [num].reg = -1;
 
 	if (vreg != -1)
 		set_vreg_to_inst (cfg, vreg, inst);
@@ -1948,104 +1954,6 @@ mono_destroy_compile (MonoCompile *cfg)
 	g_free (cfg);
 }
 
-static MonoInst*
-mono_create_tls_get_offset (MonoCompile *cfg, int offset)
-{
-	MonoInst* ins;
-
-	if (!cfg->backend->have_tls_get)
-		return NULL;
-
-	if (offset == -1)
-		return NULL;
-
-	MONO_INST_NEW (cfg, ins, OP_TLS_GET);
-	ins->dreg = mono_alloc_preg (cfg);
-	ins->inst_offset = offset;
-	return ins;
-}
-
-gboolean
-mini_tls_get_supported (MonoCompile *cfg, MonoTlsKey key)
-{
-	if (!cfg->backend->have_tls_get)
-		return FALSE;
-
-	if (cfg->compile_aot)
-		return cfg->backend->have_tls_get_reg;
-	else
-		return mini_get_tls_offset (key) != -1;
-}
-
-MonoInst*
-mono_create_tls_get (MonoCompile *cfg, MonoTlsKey key)
-{
-	if (!cfg->backend->have_tls_get)
-		return NULL;
-
-#ifdef HAVE_KW_THREAD
-	/*
-	 * MONO_THREAD_VAR_OFFSET definitions don't work when loading mono as a
-	 * dynamic library. This means that we need to be conservative and don't
-	 * aot code that contains these tls chunks.
-	 *
-	 * FIXME Remove HAVE_KW_THREAD altogether and use only pthread since it
-	 * simplifies the code alot.
-	 */
-	if (!cfg->full_aot)
-		cfg->disable_aot = TRUE;
-#endif
-	/*
-	 * TLS offsets might be different at AOT time, so load them from a GOT slot and
-	 * use a different opcode.
-	 */
-	if (cfg->compile_aot) {
-		if (cfg->backend->have_tls_get_reg) {
-			MonoInst *ins, *c;
-
-			EMIT_NEW_TLS_OFFSETCONST (cfg, c, key);
-			MONO_INST_NEW (cfg, ins, OP_TLS_GET_REG);
-			ins->dreg = mono_alloc_preg (cfg);
-			ins->sreg1 = c->dreg;
-			return ins;
-		} else {
-			return NULL;
-		}
-	}
-
-	return mono_create_tls_get_offset (cfg, mini_get_tls_offset (key));
-}
-
-MonoInst*
-mono_get_jit_tls_intrinsic (MonoCompile *cfg)
-{
-	return mono_create_tls_get (cfg, TLS_KEY_JIT_TLS);
-}
-
-MonoInst*
-mono_get_domain_intrinsic (MonoCompile* cfg)
-{
-	return mono_create_tls_get (cfg, TLS_KEY_DOMAIN);
-}
-
-MonoInst*
-mono_get_thread_intrinsic (MonoCompile* cfg)
-{
-	return mono_create_tls_get (cfg, TLS_KEY_THREAD);
-}
-
-MonoInst*
-mono_get_lmf_intrinsic (MonoCompile* cfg)
-{
-	return mono_create_tls_get (cfg, TLS_KEY_LMF);
-}
-
-MonoInst*
-mono_get_lmf_addr_intrinsic (MonoCompile* cfg)
-{
-	return mono_create_tls_get (cfg, TLS_KEY_LMF_ADDR);
-}
-
 void
 mono_add_patch_info (MonoCompile *cfg, int ip, MonoJumpInfoType type, gconstpointer target)
 {
@@ -2138,8 +2046,10 @@ mono_compile_create_vars (MonoCompile *cfg)
 
 	cfg->args = (MonoInst **)mono_mempool_alloc0 (cfg->mempool, (sig->param_count + sig->hasthis) * sizeof (MonoInst*));
 
-	if (sig->hasthis)
+	if (sig->hasthis) {
 		cfg->args [0] = mono_compile_create_var (cfg, &cfg->method->klass->this_arg, OP_ARG);
+		cfg->this_arg = cfg->args [0];
+	}
 
 	for (i = 0; i < sig->param_count; ++i) {
 		cfg->args [i + sig->hasthis] = mono_compile_create_var (cfg, sig->params [i], OP_ARG);
@@ -2242,18 +2152,11 @@ mono_postprocess_patches (MonoCompile *cfg)
 		}
 		case MONO_PATCH_INFO_SWITCH: {
 			gpointer *table;
-#if defined(__native_client__) && defined(__native_client_codegen__)
-			/* This memory will leak.  */
-			/* TODO: can we free this when  */
-			/* making the final jump table? */
-			table = g_malloc0 (sizeof(gpointer) * patch_info->data.table->table_size);
-#else
 			if (cfg->method->dynamic) {
 				table = (void **)mono_code_manager_reserve (cfg->dynamic_info->code_mp, sizeof (gpointer) * patch_info->data.table->table_size);
 			} else {
 				table = (void **)mono_domain_code_reserve (cfg->domain, sizeof (gpointer) * patch_info->data.table->table_size);
 			}
-#endif
 
 			for (i = 0; i < patch_info->data.table->table_size; i++) {
 				/* Might be NULL if the switch is eliminated */
@@ -2364,7 +2267,7 @@ mono_codegen (MonoCompile *cfg)
 	/* fixme: align to MONO_ARCH_CODE_ALIGNMENT */
 
 #ifdef MONO_ARCH_HAVE_UNWIND_TABLE
-	unwindlen = mono_arch_unwindinfo_get_size (cfg->arch.unwindinfo);
+	unwindlen = mono_arch_unwindinfo_init_method_unwind_info (cfg);
 #endif
 
 	if (cfg->method->dynamic) {
@@ -2409,20 +2312,17 @@ mono_codegen (MonoCompile *cfg)
  
 	if (cfg->verbose_level > 0) {
 		char* nm = mono_method_get_full_name (cfg->method);
-		char *opt_descr = mono_opt_descr (cfg->opt);
-		g_print ("Method %s emitted at %p to %p (code length %d) [%s] with opts %s\n", 
+		g_print ("Method %s emitted at %p to %p (code length %d) [%s]\n",
 				 nm, 
-				 cfg->native_code, cfg->native_code + cfg->code_len, cfg->code_len, cfg->domain->friendly_name,
-				 opt_descr);
+				 cfg->native_code, cfg->native_code + cfg->code_len, cfg->code_len, cfg->domain->friendly_name);
 		g_free (nm);
-		g_free (opt_descr);
 	}
 
 	{
 		gboolean is_generic = FALSE;
 
 		if (cfg->method->is_inflated || mono_method_get_generic_container (cfg->method) ||
-				cfg->method->klass->generic_container || cfg->method->klass->generic_class) {
+				mono_class_is_gtd (cfg->method->klass) || mono_class_is_ginst (cfg->method->klass)) {
 			is_generic = TRUE;
 		}
 
@@ -2478,9 +2378,6 @@ mono_codegen (MonoCompile *cfg)
 	} else {
 		mono_domain_code_commit (code_domain, cfg->native_code, cfg->code_size, cfg->code_len);
 	}
-#if defined(__native_client_codegen__) && defined(__native_client__)
-	cfg->native_code = code_dest;
-#endif
 	mono_profiler_code_buffer_new (cfg->native_code, cfg->code_len, MONO_PROFILER_CODE_BUFFER_METHOD, cfg->method);
 	
 	mono_arch_flush_icache (cfg->native_code, cfg->code_len);
@@ -2488,7 +2385,7 @@ mono_codegen (MonoCompile *cfg)
 	mono_debug_close_method (cfg);
 
 #ifdef MONO_ARCH_HAVE_UNWIND_TABLE
-	mono_arch_unwindinfo_install_unwind_info (&cfg->arch.unwindinfo, cfg->native_code, cfg->code_len);
+	mono_arch_unwindinfo_install_method_unwind_info (&cfg->arch.unwindinfo, cfg->native_code, cfg->code_len);
 #endif
 }
 
@@ -2939,7 +2836,8 @@ is_open_method (MonoMethod *method)
 	return FALSE;
 }
 
-static void mono_insert_nop_in_empty_bb (MonoCompile *cfg)
+static void
+mono_insert_nop_in_empty_bb (MonoCompile *cfg)
 {
 	MonoBasicBlock *bb;
 	for (bb = cfg->bb_entry; bb; bb = bb->next_bb) {
@@ -2961,12 +2859,8 @@ mono_create_gc_safepoint (MonoCompile *cfg, MonoBasicBlock *bblock)
 	if (cfg->verbose_level > 1)
 		printf ("ADDING SAFE POINT TO BB %d\n", bblock->block_num);
 
-#if defined(__native_client_codegen__)
-	NEW_AOTCONST (cfg, poll_addr, MONO_PATCH_INFO_GC_SAFE_POINT_FLAG, (gpointer)&__nacl_thread_suspension_needed);
-#else
 	g_assert (mono_threads_is_coop_enabled ());
 	NEW_AOTCONST (cfg, poll_addr, MONO_PATCH_INFO_GC_SAFE_POINT_FLAG, (gpointer)&mono_polling_required);
-#endif
 
 	MONO_INST_NEW (cfg, ins, OP_GC_SAFE_POINT);
 	ins->sreg1 = poll_addr->dreg;
@@ -3011,19 +2905,13 @@ mono_insert_safepoints (MonoCompile *cfg)
 {
 	MonoBasicBlock *bb;
 
-#if !defined(__native_client_codegen__)
 	if (!mono_threads_is_coop_enabled ())
 		return;
-#endif
 
 	if (cfg->method->wrapper_type == MONO_WRAPPER_MANAGED_TO_NATIVE) {
 		WrapperInfo *info = mono_marshal_get_wrapper_info (cfg->method);
-#if defined(__native_client__) || defined(__native_client_codegen__)
-		gpointer poll_func = &mono_nacl_gc;
-#else
 		g_assert (mono_threads_is_coop_enabled ());
 		gpointer poll_func = &mono_threads_state_poll;
-#endif
 
 		if (info && info->subtype == WRAPPER_SUBTYPE_ICALL_WRAPPER && info->d.icall.func == poll_func) {
 			if (cfg->verbose_level > 1)
@@ -3142,11 +3030,6 @@ init_backend (MonoBackend *backend)
 #ifdef MONO_ARCH_GSHARED_SUPPORTED
 	backend->gshared_supported = 1;
 #endif
-	if (MONO_ARCH_HAVE_TLS_GET)
-		backend->have_tls_get = 1;
-#ifdef MONO_ARCH_HAVE_TLS_GET_REG
-		backend->have_tls_get_reg = 1;
-#endif
 	if (MONO_ARCH_USE_FPSTACK)
 		backend->use_fpstack = 1;
 #ifdef MONO_ARCH_HAVE_LIVERANGE_OPS
@@ -3211,7 +3094,7 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	gboolean llvm = (flags & JIT_FLAG_LLVM) ? 1 : 0;
 #endif
 	static gboolean verbose_method_inited;
-	static const char *verbose_method_name;
+	static char *verbose_method_name;
 
 	InterlockedIncrement (&mono_jit_stats.methods_compiled);
 	if (mono_profiler_get_events () & MONO_PROFILE_JIT_COMPILATION)
@@ -3304,17 +3187,14 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 		cfg->gen_seq_points = FALSE;
 		cfg->gen_sdb_seq_points = FALSE;
 	}
-	/* coop / nacl requires loop detection to happen */
-#if defined(__native_client_codegen__)
-	cfg->opt |= MONO_OPT_LOOP;
-#else
+	/* coop requires loop detection to happen */
 	if (mono_threads_is_coop_enabled ())
 		cfg->opt |= MONO_OPT_LOOP;
-#endif
 	cfg->explicit_null_checks = debug_options.explicit_null_checks || (flags & JIT_FLAG_EXPLICIT_NULL_CHECKS);
 	cfg->soft_breakpoints = debug_options.soft_breakpoints;
 	cfg->check_pinvoke_callconv = debug_options.check_pinvoke_callconv;
 	cfg->disable_direct_icalls = disable_direct_icalls;
+	cfg->direct_pinvoke = (flags & JIT_FLAG_DIRECT_PINVOKE) != 0;
 	if (try_generic_shared)
 		cfg->gshared = TRUE;
 	cfg->compile_llvm = try_llvm;
@@ -3333,9 +3213,9 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 
 	if (cfg->gen_seq_points)
 		cfg->seq_points = g_ptr_array_new ();
-	mono_error_init (&cfg->error);
+	error_init (&cfg->error);
 
-	if (cfg->compile_aot && !try_generic_shared && (method->is_generic || method->klass->generic_container || method_is_gshared)) {
+	if (cfg->compile_aot && !try_generic_shared && (method->is_generic || mono_class_is_gtd (method->klass) || method_is_gshared)) {
 		cfg->exception_type = MONO_EXCEPTION_GENERIC_SHARING_FAILED;
 		return cfg;
 	}
@@ -3375,7 +3255,7 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	}
 	cfg->method_to_register = method_to_register;
 
-	mono_error_init (&err);
+	error_init (&err);
 	sig = mono_method_signature_checked (cfg->method, &err);	
 	if (!sig) {
 		cfg->exception_type = MONO_EXCEPTION_TYPE_LOAD;
@@ -3701,6 +3581,10 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 		cfg->disable_ssa = TRUE;
 	}
 
+	if (cfg->num_varinfo > 10000 && !cfg->llvm_only)
+		/* Disable llvm for overly complex methods */
+		cfg->disable_ssa = TRUE;
+
 	if (cfg->opt & MONO_OPT_LOOP) {
 		MONO_TIME_TRACK (mono_jit_stats.jit_compile_dominator_info, mono_compile_dominator_info (cfg, MONO_COMP_DOM | MONO_COMP_IDOM));
 		MONO_TIME_TRACK (mono_jit_stats.jit_compute_natural_loops, mono_compute_natural_loops (cfg));
@@ -3973,12 +3857,13 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	}
 #endif
 
-	if (!cfg->compile_aot)
-		mono_save_xdebug_info (cfg);
-
 	MONO_TIME_TRACK (mono_jit_stats.jit_gc_create_gc_map, mini_gc_create_gc_map (cfg));
- 
 	MONO_TIME_TRACK (mono_jit_stats.jit_save_seq_point_info, mono_save_seq_point_info (cfg));
+
+	if (!cfg->compile_aot) {
+		mono_save_xdebug_info (cfg);
+		mono_lldb_save_method_info (cfg);
+	}
 
 	if (cfg->verbose_level >= 2) {
 		char *id =  mono_method_full_name (cfg->method, FALSE);
@@ -3986,7 +3871,7 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 		g_free (id);
 	}
 
-	if (!cfg->compile_aot) {
+	if (!cfg->compile_aot && !(flags & JIT_FLAG_DISCARD_RESULTS)) {
 		mono_domain_lock (cfg->domain);
 		mono_jit_info_table_add (cfg->domain, cfg->jit_info);
 
@@ -4026,6 +3911,34 @@ mini_method_compile (MonoMethod *method, guint32 opts, MonoDomain *domain, JitFl
 	mono_cfg_dump_close_group (cfg);
 
 	return cfg;
+}
+
+gboolean
+mini_class_has_reference_variant_generic_argument (MonoCompile *cfg, MonoClass *klass, int context_used)
+{
+	int i;
+	MonoGenericContainer *container;
+	MonoGenericInst *ginst;
+
+	if (mono_class_is_ginst (klass)) {
+		container = mono_class_get_generic_container (mono_class_get_generic_class (klass)->container_class);
+		ginst = mono_class_get_generic_class (klass)->context.class_inst;
+	} else if (mono_class_is_gtd (klass) && context_used) {
+		container = mono_class_get_generic_container (klass);
+		ginst = container->context.class_inst;
+	} else {
+		return FALSE;
+	}
+
+	for (i = 0; i < container->type_argc; ++i) {
+		MonoType *type;
+		if (!(mono_generic_container_get_param_info (container, i)->flags & (MONO_GEN_PARAM_VARIANT|MONO_GEN_PARAM_COVARIANT)))
+			continue;
+		type = ginst->type_argv [i];
+		if (mini_type_is_reference (type))
+			return TRUE;
+	}
+	return FALSE;
 }
 
 void*
@@ -4130,7 +4043,7 @@ mono_jit_compile_method_inner (MonoMethod *method, MonoDomain *target_domain, in
 	GTimer *jit_timer;
 	MonoMethod *prof_method, *shared;
 
-	mono_error_init (error);
+	error_init (error);
 
 	if ((method->iflags & METHOD_IMPL_ATTRIBUTE_INTERNAL_CALL) ||
 	    (method->flags & METHOD_ATTRIBUTE_PINVOKE_IMPL)) {
@@ -4252,7 +4165,9 @@ mono_jit_compile_method_inner (MonoMethod *method, MonoDomain *target_domain, in
 
 	jit_timer = mono_time_track_start ();
 	cfg = mini_method_compile (method, opt, target_domain, JIT_FLAG_RUN_CCTORS, 0, -1);
-	mono_time_track_end (&mono_jit_stats.jit_time, jit_timer);
+	double jit_time = 0.0;
+	mono_time_track_end (&jit_time, jit_timer);
+	mono_jit_stats.jit_time += jit_time;
 
 	prof_method = cfg->method;
 
@@ -4320,7 +4235,8 @@ mono_jit_compile_method_inner (MonoMethod *method, MonoDomain *target_domain, in
 		/* We can't use a domain specific method in another domain */
 		if ((target_domain == mono_domain_get ()) || info->domain_neutral) {
 			code = info->code_start;
-//			printf("Discarding code for method %s\n", method->name);
+			discarded_code ++;
+			discarded_jit_time += jit_time;
 		}
 	}
 	if (code == NULL) {
@@ -4419,8 +4335,12 @@ mono_jit_compile_method_inner (MonoMethod *method, MonoDomain *target_domain, in
 		}
 	}
 
-	if (!mono_runtime_class_init_full (vtable, error))
-		return NULL;
+	if (!(method->wrapper_type == MONO_WRAPPER_REMOTING_INVOKE ||
+		  method->wrapper_type == MONO_WRAPPER_REMOTING_INVOKE_WITH_CHECK ||
+		  method->wrapper_type == MONO_WRAPPER_XDOMAIN_INVOKE)) {
+		if (!mono_runtime_class_init_full (vtable, error))
+			return NULL;
+	}
 	return code;
 }
 
@@ -4428,7 +4348,7 @@ mono_jit_compile_method_inner (MonoMethod *method, MonoDomain *target_domain, in
  * mini_get_underlying_type:
  *
  *   Return the type the JIT will use during compilation.
- * Handles: byref, enums, native types, generic sharing.
+ * Handles: byref, enums, native types, bool/char, ref types, generic sharing.
  * For gsharedvt types, it will return the original VAR/MVAR.
  */
 MonoType*
@@ -4440,6 +4360,9 @@ mini_get_underlying_type (MonoType *type)
 void
 mini_jit_init (void)
 {
+	mono_counters_register ("Discarded method code", MONO_COUNTER_JIT | MONO_COUNTER_INT, &discarded_code);
+	mono_counters_register ("Time spent JITting discarded code", MONO_COUNTER_JIT | MONO_COUNTER_DOUBLE, &discarded_jit_time);
+
 	mono_os_mutex_init_recursive (&jit_mutex);
 #ifndef DISABLE_JIT
 	current_backend = g_new0 (MonoBackend, 1);

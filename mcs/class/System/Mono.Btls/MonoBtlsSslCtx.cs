@@ -23,14 +23,10 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
-#if MONOTOUCH
-using MonoTouch;
-#endif
 
 namespace Mono.Btls
 {
@@ -54,40 +50,40 @@ namespace Mono.Btls
 			get { return (BoringSslCtxHandle)base.Handle; }
 		}
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_ssl_ctx_new ();
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_ctx_free (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_ssl_ctx_up_ref (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_ctx_initialize (IntPtr handle, IntPtr instance);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_ctx_set_debug_bio (IntPtr handle, IntPtr bio);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_ctx_set_cert_verify_callback (IntPtr handle, IntPtr func, int cert_required);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_ctx_set_cert_select_callback (IntPtr handle, IntPtr func);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_ctx_set_min_version (IntPtr handle, int version);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_ctx_set_max_version (IntPtr handle, int version);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_ctx_is_cipher_supported (IntPtr handle, short value);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_ctx_set_ciphers (IntPtr handle, int count, IntPtr data, int allow_unsupported);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_ctx_set_verify_param (IntPtr handle, IntPtr param);
 
 		delegate int NativeVerifyFunc (IntPtr instance, int preverify_ok, IntPtr ctx);
@@ -141,9 +137,7 @@ namespace Mono.Btls
 			return 0;
 		}
 
-#if MONOTOUCH
-		[MonoPInvokeCallback (typeof (NativeVerifyFunc))]
-#endif
+		[Mono.Util.MonoPInvokeCallback (typeof (NativeVerifyFunc))]
 		static int NativeVerifyCallback (IntPtr instance, int preverify_ok, IntPtr store_ctx)
 		{
 			var c = (MonoBtlsSslCtx)GCHandle.FromIntPtr (instance).Target;
@@ -164,9 +158,7 @@ namespace Mono.Btls
 			return 1;
 		}
 
-#if MONOTOUCH
-		[MonoPInvokeCallback (typeof (NativeSelectFunc))]
-#endif
+		[Mono.Util.MonoPInvokeCallback (typeof (NativeSelectFunc))]
 		static int NativeSelectCallback (IntPtr instance)
 		{
 			var c = (MonoBtlsSslCtx)GCHandle.FromIntPtr (instance).Target;

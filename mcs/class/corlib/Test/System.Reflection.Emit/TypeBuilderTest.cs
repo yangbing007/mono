@@ -1182,7 +1182,6 @@ namespace MonoTests.System.Reflection.Emit
 		}
 
 		[Test]
-		[Category ("AndroidNotWorking")] // Fails with System.MethodAccessException : Method `t17:.ctor ()' is inaccessible from method `t18:.ctor ()'
 		public void DefineDefaultConstructor_Parent_DefaultCtorInaccessible ()
 		{
 			TypeBuilder tb;
@@ -1198,6 +1197,16 @@ namespace MonoTests.System.Reflection.Emit
 			try {
 				Activator.CreateInstance (emitted_type);
 				Assert.Fail ("#1");
+
+				/* MOBILE special case MethodAccessException on reflection invokes and don't wrap them. */
+#if MOBILE
+			} catch (MethodAccessException mae) {
+				Assert.IsNull (mae.InnerException, "#2");
+				Assert.IsNotNull (mae.Message, "#3");
+				Assert.IsTrue (mae.Message.IndexOf (parent_type.FullName) != -1, "#4:" + mae.Message);
+				Assert.IsTrue (mae.Message.IndexOf (".ctor") != -1, "#4:" + mae.Message);
+			}
+#else
 			} catch (TargetInvocationException ex) {
 				Assert.AreEqual (typeof (TargetInvocationException), ex.GetType (), "#2");
 				Assert.IsNotNull (ex.InnerException, "#3");
@@ -1211,6 +1220,7 @@ namespace MonoTests.System.Reflection.Emit
 				Assert.IsTrue (mae.Message.IndexOf (parent_type.FullName) != -1, "#9:" + mae.Message);
 				Assert.IsTrue (mae.Message.IndexOf (".ctor") != -1, "#10:" + mae.Message);
 			}
+#endif
 		}
 
 		[Test]
@@ -11179,6 +11189,41 @@ namespace MonoTests.System.Reflection.Emit
 			Assert.IsNotNull (ins4);
 		}
 
+		[Test]
+		public void CircularReferences () {
+			// A: C<D<A>>
+			var a_type = module.DefineType(
+				"A",
+				TypeAttributes.Class,
+				typeof(object));
+
+			var cba = a_type.DefineConstructor (MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+			cba.GetILGenerator ().Emit (OpCodes.Ret);
+
+			var c_type = module.DefineType(
+				"B",
+				TypeAttributes.Class,
+				typeof(object));
+			var cbb = c_type.DefineConstructor (MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+			cbb.GetILGenerator ().Emit (OpCodes.Ret);
+			c_type.DefineGenericParameters ("d_a_param");
+
+			var d_type = module.DefineType(
+				"D",
+				TypeAttributes.Class,
+				typeof(object));
+			var cbd = d_type.DefineConstructor (MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+			cbd.GetILGenerator ().Emit (OpCodes.Ret);
+			d_type.DefineGenericParameters ("a_param");
+
+
+			var d_instantiated = c_type.MakeGenericType (d_type.MakeGenericType (a_type));
+			a_type.SetParent (d_instantiated);
+			a_type.CreateType ();
+
+			Assert.IsNotNull (a_type);
+		}
+
 		// #22059
 		[Test]
 		[ExpectedException (typeof (TypeLoadException))]
@@ -11189,6 +11234,163 @@ namespace MonoTests.System.Reflection.Emit
 		}
 
 		interface IFoo {
+		}
+
+		[Test]
+		public void GenericFieldInCreatedType () {
+			/*
+			 * Regression test for #47867.
+			 * We construct the following, but only call CreateType on R.
+			 *
+			 * public class S<T> {
+			 *   public T t;
+			 * }
+			 * public class R {
+			 *   public static S<R> sr;
+			 * }
+			 */
+			var aname = new AssemblyName ("example1");
+			var ab = AppDomain.CurrentDomain.DefineDynamicAssembly (aname, AssemblyBuilderAccess.Run);
+			var mb = ab.DefineDynamicModule (aname.Name);
+			var tbS = mb.DefineType ("S", TypeAttributes.Public);
+			tbS.DefineGenericParameters (new String [] { "T" });
+			var tbR = mb.DefineType ("R", TypeAttributes.Public);
+			tbR.DefineField ("sr", tbS.MakeGenericType(new Type[] { tbR }), FieldAttributes.Public | FieldAttributes.Static);
+
+			Type r = tbR.CreateType ();
+
+			Assert.IsNotNull  (r);
+		}
+
+		[Test]
+		public void GenericFieldInCreatedTypeIncompleteTypeTLE () {
+			/*
+			 * Regression test for #47867.
+			 * We construct the following, but only call CreateType on R.
+			 * Then we try to use R.sr which is expected throw a
+			 * TLE because S hasn't been created yet.
+			 *
+			 * public class S<T> {
+			 *   public T t;
+			 * }
+			 * public class R {
+			 *   public static S<R> sr;
+			 * }
+			 */
+			var aname = new AssemblyName ("example1");
+			var ab = AppDomain.CurrentDomain.DefineDynamicAssembly (aname, AssemblyBuilderAccess.Run);
+			var mb = ab.DefineDynamicModule (aname.Name);
+			var tbS = mb.DefineType ("S", TypeAttributes.Public);
+			tbS.DefineGenericParameters (new String [] { "T" });
+			var tbR = mb.DefineType ("R", TypeAttributes.Public);
+			tbR.DefineField ("sr", tbS.MakeGenericType(new Type[] { tbR }), FieldAttributes.Public | FieldAttributes.Static);
+
+			Type r = tbR.CreateType ();
+
+			Assert.IsNotNull  (r);
+
+			// N.B.  tbS has not had CreateType called yet, so expect this to fail.
+			Assert.Throws<TypeLoadException> (delegate { var ft = r.GetField("sr").FieldType; });
+		}
+		
+		[Test]
+		public void GetGenericTypeDefinitionAfterCreateReturnsBuilder () {
+			var aname = new AssemblyName ("genericDefnAfterCreate");
+			var ab = AppDomain.CurrentDomain.DefineDynamicAssembly (aname, AssemblyBuilderAccess.Run);
+			var mb = ab.DefineDynamicModule (aname.Name);
+			var buildX = mb.DefineType ("X", TypeAttributes.Public);
+			buildX.DefineGenericParameters ("T", "U");
+			var x = buildX.CreateType ();
+			var inst = x.MakeGenericType (typeof (string), typeof (int));
+			var defX = inst.GetGenericTypeDefinition ();
+
+			Assert.AreSame (buildX, defX);
+		}
+
+		[Test]
+		public void FieldsWithSameName () {
+			// Regression test for https://bugzilla.xamarin.com/show_bug.cgi?id=57222
+			string fileName = CreateTempAssembly ();
+
+			var assemblyName = new AssemblyName { Name = "test" };
+			var dynamicAssembly = AssemblyBuilder.DefineDynamicAssembly (assemblyName, AssemblyBuilderAccess.RunAndSave);
+			var dynamicModule = dynamicAssembly.DefineDynamicModule (assemblyName.Name, fileName);
+			var typeBuilder = dynamicModule.DefineType ("type1", TypeAttributes.Public | TypeAttributes.Class);
+
+			var mainMethod = typeBuilder.DefineMethod ("Main", MethodAttributes.Public | MethodAttributes.Static, typeof (int), new Type[0]);
+			var mainMethodIl = mainMethod.GetILGenerator ();
+
+			var f1 = typeBuilder.DefineField ("x", typeof (byte), FieldAttributes.Private | FieldAttributes.Static);
+			var f2 = typeBuilder.DefineField ("x", typeof (sbyte), FieldAttributes.Private | FieldAttributes.Static);
+
+			mainMethodIl.Emit (OpCodes.Ldsflda, f1);
+			mainMethodIl.Emit (OpCodes.Ldsflda, f2);
+			mainMethodIl.Emit (OpCodes.Pop);
+			mainMethodIl.Emit (OpCodes.Pop);
+			mainMethodIl.Emit (OpCodes.Ldc_I4_0);
+			mainMethodIl.Emit (OpCodes.Ret);
+
+			typeBuilder.CreateType ();
+			dynamicAssembly.SetEntryPoint (mainMethod);
+
+			dynamicAssembly.Save (fileName);
+		}
+		[Test]
+		public void FieldsWithSameNameAndType () {
+			// https://bugzilla.xamarin.com/show_bug.cgi?id=57222
+			string fileName = CreateTempAssembly ();
+
+			var assemblyName = new AssemblyName { Name = "test" };
+			var dynamicAssembly = AssemblyBuilder.DefineDynamicAssembly (assemblyName, AssemblyBuilderAccess.RunAndSave);
+			var dynamicModule = dynamicAssembly.DefineDynamicModule (assemblyName.Name, fileName);
+			var typeBuilder = dynamicModule.DefineType ("type1", TypeAttributes.Public | TypeAttributes.Class);
+
+			var mainMethod = typeBuilder.DefineMethod ("Main", MethodAttributes.Public | MethodAttributes.Static, typeof (int), new Type[0]);
+			var mainMethodIl = mainMethod.GetILGenerator ();
+
+			var f1 = typeBuilder.DefineField ("x", typeof (sbyte), FieldAttributes.Private | FieldAttributes.Static);
+			var f2 = typeBuilder.DefineField ("x", typeof (sbyte), FieldAttributes.Private | FieldAttributes.Static);
+
+			mainMethodIl.Emit (OpCodes.Ldsflda, f1);
+			mainMethodIl.Emit (OpCodes.Ldsflda, f2);
+			mainMethodIl.Emit (OpCodes.Pop);
+			mainMethodIl.Emit (OpCodes.Pop);
+			mainMethodIl.Emit (OpCodes.Ldc_I4_0);
+			mainMethodIl.Emit (OpCodes.Ret);
+
+			typeBuilder.CreateType ();
+			dynamicAssembly.SetEntryPoint (mainMethod);
+
+			dynamicAssembly.Save (fileName);
+		}
+
+		[Test]
+		public void MethodsWithSameNameAndSig () {
+			// https://bugzilla.xamarin.com/show_bug.cgi?id=57222
+			string fileName = CreateTempAssembly ();
+
+			var assemblyName = new AssemblyName { Name = "test" };
+			var dynamicAssembly = AssemblyBuilder.DefineDynamicAssembly (assemblyName, AssemblyBuilderAccess.RunAndSave);
+			var dynamicModule = dynamicAssembly.DefineDynamicModule (assemblyName.Name, fileName);
+			var typeBuilder = dynamicModule.DefineType ("type1", TypeAttributes.Public | TypeAttributes.Class);
+
+			var mainMethod = typeBuilder.DefineMethod ("Main", MethodAttributes.Public | MethodAttributes.Static, typeof (int), new Type[0]);
+			var mainMethodIl = mainMethod.GetILGenerator ();
+
+			var m1 = typeBuilder.DefineMethod ("X", MethodAttributes.Private | MethodAttributes.Static, typeof (void), new Type [0]);
+			var m2 = typeBuilder.DefineMethod ("X", MethodAttributes.Private | MethodAttributes.Static, typeof (void), new Type [0]);
+			m1.GetILGenerator ().Emit (OpCodes.Ret);
+			m2.GetILGenerator ().Emit (OpCodes.Ret);
+
+			mainMethodIl.Emit (OpCodes.Call, m1);
+			mainMethodIl.Emit (OpCodes.Call, m2);
+			mainMethodIl.Emit (OpCodes.Ldc_I4_0);
+			mainMethodIl.Emit (OpCodes.Ret);
+
+			typeBuilder.CreateType ();
+			dynamicAssembly.SetEntryPoint (mainMethod);
+
+			dynamicAssembly.Save (fileName);
 		}
 	}
 }

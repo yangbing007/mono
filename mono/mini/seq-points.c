@@ -1,5 +1,6 @@
-/*
- * seq-points.c: Sequence Points functions
+/**
+ * \file
+ * Sequence Points functions
  *
  * Authors:
  *   Marcos Henrich (marcos.henrich@xamarin.com)
@@ -80,7 +81,7 @@ recursively_make_pred_seq_points (MonoCompile *cfg, MonoBasicBlock *bb)
 		}
 	} 
 
-	g_free (predecessors);
+	g_array_free (predecessors, TRUE);
 }
 
 static void
@@ -168,7 +169,7 @@ mono_save_seq_point_info (MonoCompile *cfg)
 				if (l) {
 					endfinally_seq_point = (MonoInst *)l->data;
 
-					for (bb2 = cfg->bb_entry; bb2; bb2 = bb2->next_bb) {
+					for (bb2 = bb->next_bb; bb2; bb2 = bb2->next_bb) {
 						GSList *l = g_slist_last (bb2->seq_points);
 
 						if (l) {
@@ -223,6 +224,8 @@ mono_save_seq_point_info (MonoCompile *cfg)
 		}
 	}
 
+	g_free (seq_points);
+
 	if (has_debug_data)
 		g_free (next);
 
@@ -234,9 +237,11 @@ mono_save_seq_point_info (MonoCompile *cfg)
 	// FIXME: dynamic methods
 	if (!cfg->compile_aot) {
 		mono_domain_lock (domain);
-		// FIXME: How can the lookup succeed ?
+		// FIXME: The lookup can fail if the method is JITted recursively though a type cctor
 		if (!g_hash_table_lookup (domain_jit_info (domain)->seq_points, cfg->method_to_register))
 			g_hash_table_insert (domain_jit_info (domain)->seq_points, cfg->method_to_register, cfg->seq_point_info);
+		else
+			mono_seq_point_info_free (cfg->seq_point_info);
 		mono_domain_unlock (domain);
 	}
 

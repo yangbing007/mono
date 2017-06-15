@@ -1,5 +1,6 @@
-/*
- * mono-dl.c: Interface to the dynamic linker
+/**
+ * \file
+ * Interface to the dynamic linker
  *
  * Author:
  *    Mono Team (http://www.mono-project.com)
@@ -13,7 +14,7 @@
 #if defined(HOST_WIN32)
 
 #include "mono/utils/mono-dl.h"
-#include "mono/utils/mono-dl-windows.h"
+#include "mono/utils/mono-dl-windows-internals.h"
 #include "mono/utils/mono-embed.h"
 #include "mono/utils/mono-path.h"
 

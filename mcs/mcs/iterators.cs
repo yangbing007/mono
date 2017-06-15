@@ -254,7 +254,7 @@ namespace Mono.CSharp
 			// Special format which encodes original variable name and
 			// it's scope to support lifted variables debugging. This
 			// is same what csc does and allows to correctly set fields
-			// scope information (like ambiguity, our of scope, etc).
+			// scope information (like ambiguity, out of scope, etc).
 			//
 			var id = rc.CurrentBlock.Explicit.GetDebugSymbolScopeIndex ();
 			return "<" + local_info.Name + ">__" + id;
@@ -1067,6 +1067,7 @@ namespace Mono.CSharp
 
 			method.Block = new ToplevelBlock (method.Compiler, method.ParameterInfo, loc,
 				ToplevelBlock.Flags.CompilerGenerated | ToplevelBlock.Flags.NoFlowAnalysis);
+
 			method.Block.AddStatement (new TryFinallyBlockProxyStatement (this, block));
 
 			// Cannot it add to storey because it'd be emitted before nested
@@ -1219,7 +1220,7 @@ namespace Mono.CSharp
 			}
 
 			if ((modifiers & Modifiers.UNSAFE) != 0) {
-				parent.Compiler.Report.Error (1629, method.Location, "Unsafe code may not appear in iterators");
+				Expression.UnsafeInsideIteratorError (parent.Compiler.Report, method.Location);
 			}
 
 			method.Block = method.Block.ConvertToIterator (method, parent, iterator_type, is_enumerable);

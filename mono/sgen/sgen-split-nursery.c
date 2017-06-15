@@ -1,5 +1,6 @@
-/*
- * sgen-splliy-nursery.c: 3-space based nursery collector.
+/**
+ * \file
+ * 3-space based nursery collector.
  *
  * Author:
  *	Rodrigo Kumpera Kumpera <kumpera@gmail.com>
@@ -451,6 +452,7 @@ void
 sgen_split_nursery_init (SgenMinorCollector *collector)
 {
 	collector->is_split = TRUE;
+	collector->is_parallel = FALSE;
 
 	collector->alloc_for_promotion = minor_alloc_for_promotion;
 

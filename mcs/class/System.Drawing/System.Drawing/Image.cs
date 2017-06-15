@@ -10,6 +10,7 @@
 //
 // Copyright (C) 2002 Ximian, Inc.  http://www.ximian.com
 // Copyright (C) 2004, 2007 Novell, Inc (http://www.novell.com)
+// Copyright (C) 2013 Kristof Ralovich, changes are available under the terms of the MIT X11 license
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -32,7 +33,6 @@
 //
 
 using System;
-using System.Runtime.Remoting;
 using System.Runtime.Serialization;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
@@ -167,6 +167,12 @@ public abstract class Image : MarshalByRefObject, IDisposable , ICloneable, ISer
 			img.stream = stream;
 
 		return img;
+	}
+
+	// For compatiblity with CoreFX sources
+	internal static Image CreateImageObject (IntPtr nativeImage)
+	{
+		return CreateFromHandle (nativeImage);
 	}
 
 	internal static Image CreateFromHandle (IntPtr handle)
@@ -530,16 +536,30 @@ public abstract class Image : MarshalByRefObject, IDisposable , ICloneable, ISer
 
 	public void SetPropertyItem(PropertyItem propitem)
 	{
-		throw new NotImplementedException ();
-/*
-		GdipPropertyItem pi = new GdipPropertyItem ();
-		GdipPropertyItem.MarshalTo (pi, propitem);
-		unsafe {
-			Status status = GDIPlus.GdipSetPropertyItem (nativeObject, &pi);
+		if (propitem == null)
+			throw new ArgumentNullException ("propitem");
+
+		int nItemSize =  Marshal.SizeOf (propitem.Value[0]);
+		int size = nItemSize * propitem.Value.Length;
+		IntPtr dest = Marshal.AllocHGlobal (size);
+		try {
+			GdipPropertyItem pi = new GdipPropertyItem ();
+			pi.id    = propitem.Id;
+			pi.len   = propitem.Len;
+			pi.type  = propitem.Type;
+
+			Marshal.Copy (propitem.Value, 0, dest, size);
+			pi.value = dest;
+
+			unsafe {
+				Status status = GDIPlus.GdipSetPropertyItem (nativeObject, &pi);
 			
-			GDIPlus.CheckStatus (status);
+				GDIPlus.CheckStatus (status);
+			}
 		}
-*/
+		finally {
+			Marshal.FreeHGlobal (dest);
+		}
 	}
 
 	// properties	
@@ -777,6 +797,13 @@ public abstract class Image : MarshalByRefObject, IDisposable , ICloneable, ISer
 			nativeObject = value;
 		}
 	}
+
+	// For compatiblity with CoreFX sources
+	internal IntPtr nativeImage {
+		get {
+			return nativeObject;
+		}
+	}
 	
 	public void Dispose ()
 	{
@@ -795,7 +822,7 @@ public abstract class Image : MarshalByRefObject, IDisposable , ICloneable, ISer
 			Status status = GDIPlus.GdipDisposeImage (nativeObject);
 			// dispose the stream (set under Win32 only if SD owns the stream) and ...
 			if (stream != null) {
-				stream.Close ();
+				stream.Dispose ();
 				stream = null;
 			}
 			// ... set nativeObject to null before (possibly) throwing an exception

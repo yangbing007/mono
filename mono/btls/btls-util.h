@@ -14,10 +14,26 @@
 #include <string.h>
 #include <openssl/ssl.h>
 
+#ifndef MONO_API
+#if defined(_MSC_VER)
+
+#define MONO_API __declspec(dllexport)
+
+#else
+
+#ifdef __GNUC__
+#define MONO_API __attribute__ ((__visibility__ ("default")))
+#else
+#define MONO_API
+#endif
+
+#endif
+#endif
+
 void
 mono_btls_free (void *data);
 
-long
+int64_t
 mono_btls_util_asn1_time_to_ticks (ASN1_TIME *time);
 
 int

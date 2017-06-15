@@ -23,7 +23,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 using System;
 using System.Threading;
 using System.Runtime.InteropServices;
@@ -33,6 +33,8 @@ namespace Mono.Btls
 {
 	abstract class MonoBtlsObject : IDisposable
 	{
+		internal const string BTLS_DYLIB = "libmono-btls-shared";
+
 		internal MonoBtlsObject (MonoBtlsHandle handle)
 		{
 			this.handle = handle;
@@ -100,7 +102,21 @@ namespace Mono.Btls
 			CheckError (ret == 1, callerName);
 		}
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		protected internal void CheckLastError ([CallerMemberName] string callerName = null)
+		{
+			var error = Interlocked.Exchange (ref lastError, null);
+			if (error == null)
+				return;
+
+			string message;
+			if (callerName != null)
+				message = string.Format ("Caught unhandled exception in {0}.{1}.", GetType ().Name, callerName);
+			else
+				message = string.Format ("Caught unhandled exception.");
+			throw new MonoBtlsException (message, error);
+		}
+
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_free (IntPtr data);
 
 		protected void FreeDataPtr (IntPtr data)

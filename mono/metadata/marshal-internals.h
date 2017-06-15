@@ -1,4 +1,5 @@
-/*
+/**
+ * \file
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
@@ -8,6 +9,9 @@
 #include <config.h>
 #include <glib.h>
 #include <mono/metadata/object-internals.h>
+
+MonoObjectHandle
+mono_marshal_xdomain_copy_value_handle (MonoObjectHandle val, MonoError *error);
 
 // On Windows platform implementation of bellow methods are hosted in separate source file
 // masrshal-windows.c or marshal-windows-*.c. On other platforms the implementation is still keept
@@ -32,7 +36,7 @@ void
 mono_marshal_free_hglobal (void *ptr);
 
 gpointer
-mono_string_to_lpstr (MonoString *s);
+mono_string_to_utf8str (MonoString *s);
 #endif  /* HOST_WIN32 */
 
 #endif /* __MONO_METADATA_MARSHAL_INTERNALS_H__ */

@@ -160,7 +160,8 @@ typedef struct _GMemChunk GMemChunk;
  * Misc.
  */
 
-const gchar *    g_getenv(const gchar *variable);
+gboolean         g_hasenv(const gchar *variable);
+gchar *          g_getenv(const gchar *variable);
 gboolean         g_setenv(const gchar *variable, const gchar *value, gboolean overwrite);
 void             g_unsetenv(const gchar *variable);
 
@@ -887,11 +888,7 @@ gboolean   g_file_test (const gchar *filename, GFileTest test);
 #define g_ascii_strtod strtod
 #define g_ascii_isalnum isalnum
 
-#ifdef WIN32
 gchar *g_mkdtemp (gchar *tmpl);
-#else
-#define g_mkdtemp mkdtemp
-#endif
 
 /*
  * Pattern matching

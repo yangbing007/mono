@@ -23,16 +23,12 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 using System;
 using System.IO;
 using System.Text;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
-
-#if MONOTOUCH
-using MonoTouch;
-#endif
 
 namespace Mono.Btls
 {
@@ -51,78 +47,88 @@ namespace Mono.Btls
 			protected override bool ReleaseHandle ()
 			{
 				mono_btls_ssl_destroy (handle);
+				handle = IntPtr.Zero;
 				return true;
 			}
 		}
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_destroy (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_ssl_new (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_use_certificate (IntPtr handle, IntPtr x509);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_use_private_key (IntPtr handle, IntPtr key);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_add_chain_certificate (IntPtr handle, IntPtr x509);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_accept (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_connect (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_handshake (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_close (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
+		extern static int mono_btls_ssl_shutdown (IntPtr handle);
+
+		[DllImport (BTLS_DYLIB)]
+		extern static void mono_btls_ssl_set_quiet_shutdown (IntPtr handle, int mode);
+
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_set_bio (IntPtr handle, IntPtr bio);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_read (IntPtr handle, IntPtr data, int len);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_write (IntPtr handle, IntPtr data, int len);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_get_error (IntPtr handle, int ret_code);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_get_version (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_set_min_version (IntPtr handle, int version);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_set_max_version (IntPtr handle, int version);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_get_cipher (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_get_ciphers (IntPtr handle, out IntPtr data);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_ssl_get_peer_certificate (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_set_cipher_list (IntPtr handle, IntPtr str);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_ssl_print_errors_cb (IntPtr func, IntPtr ctx);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_set_verify_param (IntPtr handle, IntPtr param);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_ssl_set_server_name (IntPtr handle, IntPtr name);
+
+		[DllImport (BTLS_DYLIB)]
+		extern static IntPtr mono_btls_ssl_get_server_name (IntPtr handle);
 
 		static BoringSslHandle Create_internal (MonoBtlsSslCtx ctx)
 		{
@@ -132,6 +138,7 @@ namespace Mono.Btls
 			return new BoringSslHandle (handle);
 		}
 
+		MonoBtlsBio bio;
 		PrintErrorsCallbackFunc printErrorsFunc;
 		IntPtr printErrorsFuncPtr;
 
@@ -149,6 +156,7 @@ namespace Mono.Btls
 		public void SetBio (MonoBtlsBio bio)
 		{
 			CheckThrow ();
+			this.bio = bio;
 			mono_btls_ssl_set_bio (
 				Handle.DangerousGetHandle (),
 				bio.Handle.DangerousGetHandle ());
@@ -165,18 +173,17 @@ namespace Mono.Btls
 				errors = null;
 			}
 
-			if (errors != null) {
-				Console.Error.WriteLine ("ERROR: {0} failed: {1}", callerName, errors);
+			if (errors != null)
 				throw new MonoBtlsException ("{0} failed: {1}.", callerName, errors);
-			} else {
-				Console.Error.WriteLine ("ERROR: {0} failed.", callerName);
+			else
 				throw new MonoBtlsException ("{0} failed.", callerName);
-			}
 		}
 
 		MonoBtlsSslError GetError (int ret_code)
 		{
 			CheckThrow ();
+			bio.CheckLastError ();
+
 			var error = mono_btls_ssl_get_error (
 				Handle.DangerousGetHandle (), ret_code);
 			return (MonoBtlsSslError)error;
@@ -247,9 +254,7 @@ namespace Mono.Btls
 
 		delegate int PrintErrorsCallbackFunc (IntPtr str, IntPtr len, IntPtr ctx);
 
-#if MONOTOUCH
-		[MonoPInvokeCallback (typeof (PrintErrorsCallbackFunc))]
-#endif
+		[Mono.Util.MonoPInvokeCallback (typeof (PrintErrorsCallbackFunc))]
 		static int PrintErrorsCallback (IntPtr str, IntPtr len, IntPtr ctx)
 		{
 			var sb = (StringBuilder)GCHandle.FromIntPtr (ctx).Target;
@@ -290,15 +295,20 @@ namespace Mono.Btls
 			var ret = mono_btls_ssl_read (
 				Handle.DangerousGetHandle (), data, dataSize);
 
-			if (ret >= 0) {
+			if (ret > 0) {
 				dataSize = ret;
 				return MonoBtlsSslError.None;
 			}
 
-			var error = mono_btls_ssl_get_error (
-				Handle.DangerousGetHandle (), ret);
+			var error = GetError (ret);
+			if (ret == 0 && error == MonoBtlsSslError.Syscall) {
+				// End-of-stream
+				dataSize = 0;
+				return MonoBtlsSslError.None;
+			}
+
 			dataSize = 0;
-			return (MonoBtlsSslError)error;
+			return error;
 		}
 
 		public MonoBtlsSslError Write (IntPtr data, ref int dataSize)
@@ -409,9 +419,34 @@ namespace Mono.Btls
 			}
 		}
 
+		public string GetServerName ()
+		{
+			CheckThrow ();
+			var namePtr = mono_btls_ssl_get_server_name (
+				Handle.DangerousGetHandle ());
+			if (namePtr == IntPtr.Zero)
+				return null;
+			return Marshal.PtrToStringAnsi (namePtr);
+		}
+
+		public void Shutdown ()
+		{
+			CheckThrow ();
+			var ret = mono_btls_ssl_shutdown (Handle.DangerousGetHandle ());
+			if (ret < 0)
+				throw ThrowError ();
+		}
+
+		public void SetQuietShutdown ()
+		{
+			CheckThrow ();
+			mono_btls_ssl_set_quiet_shutdown (Handle.DangerousGetHandle (), 1);
+		}
+
 		protected override void Close ()
 		{
-			mono_btls_ssl_close (Handle.DangerousGetHandle ());
+			if (!Handle.IsInvalid)
+				mono_btls_ssl_close (Handle.DangerousGetHandle ());
 		}
 	}
 }

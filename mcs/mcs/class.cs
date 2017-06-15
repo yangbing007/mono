@@ -639,6 +639,15 @@ namespace Mono.CSharp
 			}
 		}
 
+		public bool HasInstanceField {
+			get {
+				return (caching_flags & Flags.HasInstanceField) != 0;
+			}
+			set {
+				caching_flags |= Flags.HasInstanceField;
+			}
+		}
+
 		// Indicated whether container has StructLayout attribute set Explicit
 		public bool HasExplicitLayout {
 			get { return (caching_flags & Flags.HasExplicitLayout) != 0; }
@@ -848,18 +857,22 @@ namespace Mono.CSharp
 			if ((field.ModFlags & Modifiers.STATIC) != 0)
 				return true;
 
-			var first_field = PartialContainer.first_nonstatic_field;
-			if (first_field == null) {
+			if (!PartialContainer.HasInstanceField) {
+				PartialContainer.HasInstanceField = true;
 				PartialContainer.first_nonstatic_field = field;
 				return true;
 			}
 
-			if (Kind == MemberKind.Struct && first_field.Parent != field.Parent) {
-				Report.SymbolRelatedToPreviousError (first_field.Parent);
-				Report.Warning (282, 3, field.Location,
-					"struct instance field `{0}' found in different declaration from instance field `{1}'",
-					field.GetSignatureForError (), first_field.GetSignatureForError ());
+			if (Kind == MemberKind.Struct) {
+				var first_field = PartialContainer.first_nonstatic_field;
+				if (first_field.Parent != field.Parent) {
+					Report.SymbolRelatedToPreviousError (first_field.Parent);
+					Report.Warning (282, 3, field.Location,
+						"struct instance field `{0}' found in different declaration from instance field `{1}'",
+						field.GetSignatureForError (), first_field.GetSignatureForError ());
+				}
 			}
+
 			return true;
 		}
 
@@ -1299,7 +1312,7 @@ namespace Mono.CSharp
 			//
 			// Sets .size to 1 for structs with no instance fields
 			//
-			int type_size = Kind == MemberKind.Struct && first_nonstatic_field == null && !(this is StateMachine) ? 1 : 0;
+			int type_size = Kind == MemberKind.Struct && !HasInstanceField && !(this is StateMachine) ? 1 : 0;
 
 			var parent_def = Parent as TypeDefinition;
 			if (parent_def == null) {
@@ -1443,7 +1456,11 @@ namespace Mono.CSharp
 					targs.Arguments = new TypeSpec[hoisted_tparams.Length];
 					for (int i = 0; i < hoisted_tparams.Length; ++i) {
 						var tp = hoisted_tparams[i];
-						var local_tp = new TypeParameter (tp, null, new MemberName (tp.Name, Location), null);
+						var tp_name = tp.Name;
+#if DEBUG
+						tp_name += "_Proxy";
+#endif
+						var local_tp = new TypeParameter (tp, null, new MemberName (tp_name, Location), null);
 						tparams.Add (local_tp);
 
 						targs.Add (new SimpleName (tp.Name, Location));
@@ -1459,6 +1476,12 @@ namespace Mono.CSharp
 					var mutator = new TypeParameterMutator (hoisted_tparams, tparams);
 					return_type = mutator.Mutate (return_type);
 					local_param_types = mutator.Mutate (local_param_types);
+
+					var inflator = new TypeParameterInflator (this, null, hoisted_tparams, targs.Arguments);
+					for (int i = 0; i < hoisted_tparams.Length; ++i) {
+						var tp_spec = (TypeParameterSpec) targs.Arguments [i];
+						tp_spec.InflateConstraints (inflator, tp_spec);
+					}
 				} else {
 					member_name = new MemberName (name);
 				}
@@ -1471,7 +1494,7 @@ namespace Mono.CSharp
 					base_parameters[i].Resolve (this, i);
 				}
 
-				var cloned_params = ParametersCompiled.CreateFullyResolved (base_parameters, method.Parameters.Types);
+				var cloned_params = ParametersCompiled.CreateFullyResolved (base_parameters, local_param_types);
 				if (method.Parameters.HasArglist) {
 					cloned_params.FixedParameters[0] = new Parameter (null, "__arglist", Parameter.Modifier.NONE, null, Location);
 					cloned_params.Types[0] = Module.PredefinedTypes.RuntimeArgumentHandle.Resolve ();
@@ -1795,8 +1818,10 @@ namespace Mono.CSharp
 			this.spec = spec;
 			current_type = null;
 			if (class_partial_parts != null) {
-				foreach (var part in class_partial_parts)
+				foreach (var part in class_partial_parts) {
 					part.spec = spec;
+					part.current_type = null;
+				}
 			}
 		}
 
@@ -2202,6 +2227,10 @@ namespace Mono.CSharp
 				Module.PredefinedAttributes.CompilerGenerated.EmitAttribute (TypeBuilder);
 
 #if STATIC
+			if (Kind == MemberKind.Struct && HasInstanceField) {
+				TypeBuilder.__SetLayout (0, 0);
+			}
+
 			if ((TypeBuilder.Attributes & TypeAttributes.StringFormatMask) == 0 && Module.HasDefaultCharSet)
 				TypeBuilder.__SetAttributes (TypeBuilder.Attributes | Module.DefaultCharSetType);
 #endif
@@ -3134,7 +3163,7 @@ namespace Mono.CSharp
 				return false;
 			}
 
-			if (first_nonstatic_field != null) {
+			if (HasInstanceField) {
 				requires_delayed_unmanagedtype_check = true;
 
 				foreach (var member in Members) {

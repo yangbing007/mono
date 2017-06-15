@@ -75,6 +75,13 @@ namespace System.Runtime.InteropServices
 			return false;
 		}
 
+		[MonoTODO]
+		public static void CleanupUnusedObjectsInCurrentContext ()
+		{
+			if (Environment.IsRunningOnWindows)
+				throw new PlatformNotSupportedException ();
+		}
+
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		public extern static IntPtr AllocCoTaskMem (int cb);
 		
@@ -789,15 +796,8 @@ namespace System.Runtime.InteropServices
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		public extern static string PtrToStringUni (IntPtr ptr, int len);
 
-#if !MOBILE
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		public extern static string PtrToStringBSTR (IntPtr ptr);
-#else
-		public static string PtrToStringBSTR (IntPtr ptr)
-		{
-			throw new NotImplementedException ();
-		}
-#endif
 		
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		[ComVisible (true)]
@@ -1751,5 +1751,45 @@ namespace System.Runtime.InteropServices
 		internal static void SetLastWin32Error (int error)
 		{
 		}
+
+#if FEATURE_COMINTEROP || MONO_COM
+		// Copied from referencesource/mscorlib/system/runtime/interopservices/marshal.cs
+		//====================================================================
+		// return the raw IUnknown* for a COM Object not related to current 
+		// context
+		// Does not call AddRef
+		//====================================================================
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal static extern IntPtr /* IUnknown* */ GetRawIUnknownForComObjectNoAddRef(Object o);
+		
+		// Copied from referencesource/mscorlib/system/runtime/interopservices/marshal.cs
+		//====================================================================
+		// Converts the CLR exception to an HRESULT. This function also sets
+		// up an IErrorInfo for the exception.
+		// This function is only used in WinRT and converts ObjectDisposedException
+		// to RO_E_CLOSED
+		//====================================================================
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal static extern int GetHRForException_WinRT(Exception e);
+
+		// Copied from referencesource/mscorlib/system/runtime/interopservices/marshal.cs
+		//========================================================================
+		// Create activation factory and wraps it with a unique RCW
+		//========================================================================
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal static extern object GetNativeActivationFactory(Type type);
+#else
+		internal static IntPtr /* IUnknown* */ GetRawIUnknownForComObjectNoAddRef(Object o) {
+			throw new NotSupportedException();
+		}
+
+		internal static int GetHRForException_WinRT(Exception e) {
+			throw new NotSupportedException();
+		}
+
+		internal static object GetNativeActivationFactory(Type type) {
+			throw new NotSupportedException();
+		}
+#endif
 	}
 }

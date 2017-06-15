@@ -1,4 +1,5 @@
-/* 
+/**
+ * \file
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
@@ -42,7 +43,7 @@ typedef struct {
 	/* for PInvoke */
 	int charset, extra_flags, native_cc;
 	MonoString *dll, *dllentry;
-} ReflectionMethodBuilder;
+} ReflectionMethodBuilder; /* FIXME raw pointers to managed objects */
 
 void
 mono_reflection_emit_init (void);
@@ -74,8 +75,13 @@ mono_is_sr_mono_cmethod (MonoClass *klass);
 gboolean
 mono_is_sr_mono_property (MonoClass *klass);
 
+MonoType*
+mono_reflection_type_get_handle (MonoReflectionType *ref, MonoError *error);
+
 gpointer
 mono_reflection_resolve_object (MonoImage *image, MonoObject *obj, MonoClass **handle_class, MonoGenericContext *context, MonoError *error);
+
+MonoType* mono_type_array_get_and_resolve (MonoArrayHandle array, int idx, MonoError* error);
 
 void
 mono_sre_array_method_free (ArrayMethod *am);
@@ -124,7 +130,7 @@ guint32
 mono_dynimage_encode_typedef_or_ref_full (MonoDynamicImage *assembly, MonoType *type, gboolean try_typespec);
 
 guint32
-mono_dynimage_encode_reflection_sighelper (MonoDynamicImage *assembly, MonoReflectionSigHelper *helper,
+mono_dynimage_encode_reflection_sighelper (MonoDynamicImage *assembly, MonoReflectionSigHelperHandle helper,
 					   MonoError *error);
 
 /* sre-encode, without DISABLE_REFLECTION_EMIT_SAVE (o.w. g_assert_not_reached ()) */
@@ -134,6 +140,9 @@ mono_dynimage_save_encode_marshal_blob (MonoDynamicImage *assembly, MonoReflecti
 
 guint32
 mono_dynimage_save_encode_property_signature (MonoDynamicImage *assembly, MonoReflectionPropertyBuilder *fb, MonoError *error);
+
+guint32
+mono_image_get_methodref_token (MonoDynamicImage *assembly, MonoMethod *method, gboolean create_typespec);
 
 #endif  /* __MONO_METADATA_SRE_INTERNALS_H__ */
 

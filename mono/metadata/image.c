@@ -1,5 +1,6 @@
-/*
- * image.c: Routines for manipulating an image stored in an
+/**
+ * \file
+ * Routines for manipulating an image stored in an
  * extended PE/COFF file.
  * 
  * Authors:
@@ -27,7 +28,6 @@
 #include "loader.h"
 #include "marshal.h"
 #include "coree.h"
-#include <mono/io-layer/io-layer.h>
 #include <mono/utils/checked-build.h>
 #include <mono/utils/mono-logger-internals.h>
 #include <mono/utils/mono-path.h>
@@ -46,6 +46,7 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#include <mono/metadata/w32error.h>
 
 #define INVALID_ADDRESS 0xffffffff
 
@@ -199,14 +200,14 @@ mono_cli_rva_image_map (MonoImage *image, guint32 addr)
 }
 
 /**
- * mono_images_rva_map:
- * @image: a MonoImage
- * @addr: relative virtual address (RVA)
+ * mono_image_rva_map:
+ * \param image a \c MonoImage
+ * \param addr relative virtual address (RVA)
  *
  * This is a low-level routine used by the runtime to map relative
  * virtual address (RVA) into their location in memory. 
  *
- * Returns: the address in memory for the given RVA, or NULL if the
+ * \returns the address in memory for the given RVA, or NULL if the
  * RVA is not valid for this image. 
  */
 char *
@@ -255,7 +256,7 @@ mono_images_init (void)
 	for(hash_idx = 0; hash_idx < IMAGES_HASH_COUNT; hash_idx++)
 		loaded_images_hashes [hash_idx] = g_hash_table_new (g_str_hash, g_str_equal);
 
-	debug_assembly_unload = g_getenv ("MONO_DEBUG_ASSEMBLY_UNLOAD") != NULL;
+	debug_assembly_unload = g_hasenv ("MONO_DEBUG_ASSEMBLY_UNLOAD");
 
 	install_pe_loader ();
 
@@ -290,13 +291,13 @@ mono_images_cleanup (void)
 
 /**
  * mono_image_ensure_section_idx:
- * @image: The image we are operating on
- * @section: section number that we will load/map into memory
+ * \param image The image we are operating on
+ * \param section section number that we will load/map into memory
  *
  * This routine makes sure that we have an in-memory copy of
- * an image section (.text, .rsrc, .data).
+ * an image section (<code>.text</code>, <code>.rsrc</code>, <code>.data</code>).
  *
- * Returns: TRUE on success
+ * \returns TRUE on success
  */
 int
 mono_image_ensure_section_idx (MonoImage *image, int section)
@@ -325,13 +326,13 @@ mono_image_ensure_section_idx (MonoImage *image, int section)
 
 /**
  * mono_image_ensure_section:
- * @image: The image we are operating on
- * @section: section name that we will load/map into memory
+ * \param image The image we are operating on
+ * \param section section name that we will load/map into memory
  *
  * This routine makes sure that we have an in-memory copy of
  * an image section (.text, .rsrc, .data).
  *
- * Returns: TRUE on success
+ * \returns TRUE on success
  */
 int
 mono_image_ensure_section (MonoImage *image, const char *section)
@@ -520,7 +521,7 @@ load_metadata_ptrs (MonoImage *image, MonoCLIImageInfo *iinfo)
 			image->heap_tables.size = read32 (ptr + 4);
 			ptr += 8 + 3;
 			image->uncompressed_metadata = TRUE;
-			mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Assembly '%s' has the non-standard metadata heap #-.\nRecompile it correctly (without the /incremental switch or in Release mode).\n", image->name);
+			mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Assembly '%s' has the non-standard metadata heap #-.\nRecompile it correctly (without the /incremental switch or in Release mode).", image->name);
 		} else if (strncmp (ptr + 8, "#Pdb", 5) == 0) {
 			image->heap_pdb.data = image->raw_metadata + read32 (ptr);
 			image->heap_pdb.size = read32 (ptr + 4);
@@ -535,9 +536,9 @@ load_metadata_ptrs (MonoImage *image, MonoCLIImageInfo *iinfo)
 	}
 
 	i = ((MonoImageLoader*)image->loader)->load_tables (image);
-	g_assert (image->heap_guid.data);
 
 	if (!image->metadata_only) {
+		g_assert (image->heap_guid.data);
 		g_assert (image->heap_guid.size >= 16);
 
 		image->guid = mono_guid_to_string ((guint8*)image->heap_guid.data);
@@ -593,6 +594,23 @@ load_tables (MonoImage *image)
 
 	/* They must be the same */
 	g_assert ((const void *) image->tables_base == (const void *) rows);
+
+	if (image->heap_pdb.size) {
+		/*
+		 * Obtain token sizes from the pdb stream.
+		 */
+		/* 24 = guid + entry point */
+		int pos = 24;
+		image->referenced_tables = read64 (image->heap_pdb.data + pos);
+		pos += 8;
+		image->referenced_table_rows = g_new0 (int, 64);
+		for (int i = 0; i < 64; ++i) {
+			if (image->referenced_tables & ((guint64)1 << i)) {
+				image->referenced_table_rows [i] = read32 (image->heap_pdb.data + pos);
+				pos += 4;
+			}
+		}
+	}
 
 	mono_metadata_compute_table_bases (image);
 	return TRUE;
@@ -674,7 +692,7 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 	GList *list_iter, *valid_modules = NULL;
 	MonoImageOpenStatus status;
 
-	mono_error_init (error);
+	error_init (error);
 
 	if ((image->module_count == 0) || (idx > image->module_count || idx <= 0))
 		return NULL;
@@ -721,7 +739,7 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 					return NULL;
 				}
 
-				image->modules [idx - 1] = image;
+				image->modules [idx - 1] = moduleImage;
 
 #ifdef HOST_WIN32
 				if (image->modules [idx - 1]->is_module_handle)
@@ -741,6 +759,9 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 	return image->modules [idx - 1];
 }
 
+/**
+ * mono_image_load_module:
+ */
 MonoImage*
 mono_image_load_module (MonoImage *image, int idx)
 {
@@ -761,11 +782,14 @@ class_key_extract (gpointer value)
 static gpointer*
 class_next_value (gpointer value)
 {
-	MonoClass *klass = (MonoClass *)value;
+	MonoClassDef *klass = (MonoClassDef *)value;
 
 	return (gpointer*)&klass->next_class_cache;
 }
 
+/**
+ * mono_image_init:
+ */
 void
 mono_image_init (MonoImage *image)
 {
@@ -779,7 +803,7 @@ mono_image_init (MonoImage *image)
 				       class_next_value);
 	image->field_cache = mono_conc_hashtable_new (NULL, NULL);
 
-	image->typespec_cache = g_hash_table_new (NULL, NULL);
+	image->typespec_cache = mono_conc_hashtable_new (NULL, NULL);
 	image->memberref_signatures = g_hash_table_new (NULL, NULL);
 	image->helper_signatures = g_hash_table_new (g_str_hash, g_str_equal);
 	image->method_signatures = g_hash_table_new (NULL, NULL);
@@ -1077,6 +1101,168 @@ install_pe_loader (void)
 	mono_install_image_loader (&pe_loader);
 }
 
+/*
+Ignored assemblies.
+
+There are some assemblies we need to ignore because they include an implementation that doesn't work under mono.
+Mono provides its own implementation of those assemblies so it's safe to do so.
+
+The ignored_assemblies list is generated using tools/nuget-hash-extractor and feeding the problematic nugets to it.
+
+Right now the list of nugets are the ones that provide the assemblies in $ignored_assemblies_file_names.
+
+This is to be removed once a proper fix is shipped through nuget.
+
+*/
+
+typedef enum {
+	SYS_RT_INTEROP_RUNTIME_INFO = 0, //System.Runtime.InteropServices.RuntimeInformation
+	SYS_GLOBALIZATION_EXT = 1, //System.Globalization.Extensions
+	SYS_IO_COMPRESSION = 2, //System.IO.Compression
+	SYS_NET_HTTP = 3, //System.Net.Http
+	SYS_TEXT_ENC_CODEPAGES = 4, //System.Text.Encoding.CodePages
+	SYS_REF_DISP_PROXY = 5, //System.Reflection.DispatchProxy
+	SYS_THREADING_OVERLAPPED = 6, //System.Threading.Overlapped
+} IgnoredAssemblyNames;
+
+typedef struct {
+	int hash;
+	int assembly_name;
+	const char guid [40];
+} IgnoredAssembly;
+
+typedef struct {
+	int assembly_name;
+	guint16 major, minor, build, revision;
+} IgnoredAssemblyVersion;
+
+const char *ignored_assemblies_file_names[] = {
+	"System.Runtime.InteropServices.RuntimeInformation.dll",
+	"System.Globalization.Extensions.dll",
+	"System.IO.Compression.dll",
+	"System.Net.Http.dll",
+	"System.Text.Encoding.CodePages.dll",
+	"System.Reflection.DispatchProxy.dll",
+	"System.Threading.Overlapped.dll"
+};
+
+#define IGNORED_ASSEMBLY(HASH, NAME, GUID, VER_STR)	{ .hash = HASH, .assembly_name = NAME, .guid = GUID }
+
+static const IgnoredAssembly ignored_assemblies [] = {
+	IGNORED_ASSEMBLY (0x1136045D, SYS_GLOBALIZATION_EXT, "475DBF02-9F68-44F1-8FB5-C9F69F1BD2B1", "4.0.0 net46"),
+	IGNORED_ASSEMBLY (0x358C9723, SYS_GLOBALIZATION_EXT, "5FCD54F0-4B97-4259-875D-30E481F02EA2", "4.0.1 net46"),
+	IGNORED_ASSEMBLY (0x450A096A, SYS_GLOBALIZATION_EXT, "E9FCFF5B-4DE1-4BDC-9CE8-08C640FC78CC", "4.3.0 net46"),
+	IGNORED_ASSEMBLY (0x1CBD59A2, SYS_IO_COMPRESSION, "44FCA06C-A510-4B3E-BDBF-D08D697EF65A", "4.1.0 net46"),
+	IGNORED_ASSEMBLY (0x5E393C29, SYS_IO_COMPRESSION, "3A58A219-266B-47C3-8BE8-4E4F394147AB", "4.3.0 net46"),
+	IGNORED_ASSEMBLY (0x27726A90, SYS_NET_HTTP, "269B562C-CC15-4736-B1B1-68D4A43CAA98", "4.1.0 net46"),
+	IGNORED_ASSEMBLY (0x10CADA75, SYS_NET_HTTP, "EA2EC6DC-51DD-479C-BFC2-E713FB9E7E47", "4.1.1 net46"),
+	IGNORED_ASSEMBLY (0x8437178B, SYS_NET_HTTP, "C0E04D9C-70CF-48A6-A179-FBFD8CE69FD0", "4.3.0 net46"),
+	IGNORED_ASSEMBLY (0xFAFDA422, SYS_NET_HTTP, "817F01C3-4011-477D-890A-98232B85553D", "4.3.1 net46"),
+	IGNORED_ASSEMBLY (0x472FA630, SYS_NET_HTTP, "09D4A140-061C-4884-9B63-22067E841931", "4.3.2 net46"),
+	IGNORED_ASSEMBLY (0x4A15555E, SYS_REF_DISP_PROXY, "E40AFEB4-CABE-4124-8412-B46AB79C92FD", "4.0.0 net46"),
+	IGNORED_ASSEMBLY (0xD20D9783, SYS_REF_DISP_PROXY, "2A69F0AD-B86B-40F2-8E4C-5B671E47479F", "4.0.1 netstandard1.3"),
+	IGNORED_ASSEMBLY (0xA33A7E68, SYS_REF_DISP_PROXY, "D4E8D2DB-BD65-4168-99EA-D2C1BDEBF9CC", "4.3.0 netstandard1.3"),
+	IGNORED_ASSEMBLY (0x46A4A1C5, SYS_RT_INTEROP_RUNTIME_INFO, "F13660F8-9D0D-419F-BA4E-315693DD26EA", "4.0.0 net45"),
+	IGNORED_ASSEMBLY (0xD07383BB, SYS_RT_INTEROP_RUNTIME_INFO, "DD91439F-3167-478E-BD2C-BF9C036A1395", "4.3.0 net45"),
+	IGNORED_ASSEMBLY (0x911D9EC3, SYS_TEXT_ENC_CODEPAGES, "C142254F-DEB5-46A7-AE43-6F10320D1D1F", "4.0.1 net46"),
+	IGNORED_ASSEMBLY (0xFA686A38, SYS_TEXT_ENC_CODEPAGES, "FD178CD4-EF4F-44D5-9C3F-812B1E25126B", "4.3.0 net46"),
+	IGNORED_ASSEMBLY (0xAA21986B, SYS_THREADING_OVERLAPPED, "9F5D4F09-787A-458A-BA08-553AA71470F1", "4.0.0 net46"),
+	IGNORED_ASSEMBLY (0x7D927C2A, SYS_THREADING_OVERLAPPED, "FCBD003B-2BB4-4940-BAEF-63AF520C2336", "4.0.1 net46"),
+	IGNORED_ASSEMBLY (0x6FE03EE2, SYS_THREADING_OVERLAPPED, "87697E71-D192-4F0B-BAD4-02BBC7793005", "4.3.0 net46")
+};
+
+
+const char *ignored_assemblies_names[] = {
+	"System.Runtime.InteropServices.RuntimeInformation",
+	"System.Globalization.Extensions",
+	"System.IO.Compression",
+	"System.Net.Http",
+	"System.Text.Encoding.CodePages",
+	"System.Reflection.DispatchProxy",
+	"System.Threading.Overlapped"
+};
+
+#define IGNORED_ASM_VER(NAME, MAJOR, MINOR, BUILD, REVISION) { .assembly_name = NAME, .major = MAJOR, .minor = MINOR, .build = BUILD, .revision = REVISION }
+
+static const IgnoredAssemblyVersion ignored_assembly_versions [] = {
+	IGNORED_ASM_VER (SYS_GLOBALIZATION_EXT, 4, 0, 0, 0),
+	IGNORED_ASM_VER (SYS_GLOBALIZATION_EXT, 4, 0, 1, 0),
+	IGNORED_ASM_VER (SYS_GLOBALIZATION_EXT, 4, 0, 2, 0),
+	IGNORED_ASM_VER (SYS_IO_COMPRESSION, 4, 1, 0, 0),
+	IGNORED_ASM_VER (SYS_IO_COMPRESSION, 4, 1, 2, 0),
+	IGNORED_ASM_VER (SYS_NET_HTTP, 4, 1, 0, 0),
+	IGNORED_ASM_VER (SYS_NET_HTTP, 4, 1, 0, 1),
+	IGNORED_ASM_VER (SYS_NET_HTTP, 4, 1, 1, 0),
+	IGNORED_ASM_VER (SYS_NET_HTTP, 4, 1, 1, 1),
+	IGNORED_ASM_VER (SYS_REF_DISP_PROXY, 4, 0, 0, 0),
+	IGNORED_ASM_VER (SYS_REF_DISP_PROXY, 4, 0, 1, 0),
+	IGNORED_ASM_VER (SYS_REF_DISP_PROXY, 4, 0, 2, 0),
+	IGNORED_ASM_VER (SYS_RT_INTEROP_RUNTIME_INFO, 4, 0, 0, 0),
+	IGNORED_ASM_VER (SYS_RT_INTEROP_RUNTIME_INFO, 4, 0, 1, 0),
+	IGNORED_ASM_VER (SYS_TEXT_ENC_CODEPAGES, 4, 0, 1, 0),
+	IGNORED_ASM_VER (SYS_TEXT_ENC_CODEPAGES, 4, 0, 2, 0),
+	IGNORED_ASM_VER (SYS_THREADING_OVERLAPPED, 4, 0, 0, 0),
+	IGNORED_ASM_VER (SYS_THREADING_OVERLAPPED, 4, 0, 1, 0),
+	IGNORED_ASM_VER (SYS_THREADING_OVERLAPPED, 4, 0, 2, 0),
+};
+
+gboolean
+mono_assembly_is_problematic_version (const char *name, guint16 major, guint16 minor, guint16 build, guint16 revision)
+{
+	for (int i = 0; i < G_N_ELEMENTS (ignored_assembly_versions); ++i) {
+		if (ignored_assembly_versions [i].major != major ||
+			ignored_assembly_versions [i].minor != minor ||
+			ignored_assembly_versions [i].build != build ||
+			ignored_assembly_versions [i].revision != revision)
+				continue;
+		if (!strcmp (ignored_assemblies_names [ignored_assembly_versions [i].assembly_name], name))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Equivalent C# code:
+	static void Main  () {
+		string str = "...";
+		int h = 5381;
+        for (int i = 0;  i < str.Length; ++i)
+            h = ((h << 5) + h) ^ str[i];
+
+		Console.WriteLine ("{0:X}", h);
+	}
+*/
+static int
+hash_guid (const char *str)
+{
+	int h = 5381;
+    while (*str) {
+        h = ((h << 5) + h) ^ *str;
+		++str;
+	}
+
+	return h;
+}
+
+static gboolean
+is_problematic_image (MonoImage *image)
+{
+	int h = hash_guid (image->guid);
+
+	//TODO make this more cache effiecient.
+	// Either sort by hash and bseach or use SoA and make the linear search more cache efficient.
+	for (int i = 0; i < G_N_ELEMENTS (ignored_assemblies); ++i) {
+		if (ignored_assemblies [i].hash == h && !strcmp (image->guid, ignored_assemblies [i].guid)) {
+			const char *needle = ignored_assemblies_file_names [ignored_assemblies [i].assembly_name];
+			size_t needle_len = strlen (needle);
+			size_t asm_len = strlen (image->name);
+			if (asm_len > needle_len && !g_ascii_strcasecmp (image->name + (asm_len - needle_len), needle))
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 static MonoImage *
 do_mono_image_load (MonoImage *image, MonoImageOpenStatus *status,
 		    gboolean care_about_cli, gboolean care_about_pecoff)
@@ -1132,6 +1318,16 @@ do_mono_image_load (MonoImage *image, MonoImageOpenStatus *status,
 	if (!mono_image_load_cli_data (image))
 		goto invalid_image;
 
+	if (!image->ref_only && is_problematic_image (image)) {
+		if (image->load_from_context) {
+			mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Loading problematic image %s", image->name);
+		} else {
+			mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Denying load of problematic image %s", image->name);
+			*status = MONO_IMAGE_IMAGE_INVALID;
+			goto invalid_image;
+		}
+	}
+
 	if (image->loader == &pe_loader && !image->metadata_only && !mono_verifier_verify_table_data (image, &errors))
 		goto invalid_image;
 
@@ -1159,7 +1355,7 @@ invalid_image:
 
 static MonoImage *
 do_mono_image_open (const char *fname, MonoImageOpenStatus *status,
-					gboolean care_about_cli, gboolean care_about_pecoff, gboolean refonly, gboolean metadata_only)
+					gboolean care_about_cli, gboolean care_about_pecoff, gboolean refonly, gboolean metadata_only, gboolean load_from_context)
 {
 	MonoCLIImageInfo *iinfo;
 	MonoImage *image;
@@ -1203,6 +1399,7 @@ do_mono_image_open (const char *fname, MonoImageOpenStatus *status,
 	image->name = mono_path_resolve_symlinks (fname);
 	image->ref_only = refonly;
 	image->metadata_only = metadata_only;
+	image->load_from_context = load_from_context;
 	image->ref_count = 1;
 	/* if MONO_SECURITY_MODE_CORE_CLR is set then determine if this image is platform code */
 	image->core_clr_platform_code = mono_security_core_clr_determine_platform_image (image);
@@ -1212,14 +1409,14 @@ do_mono_image_open (const char *fname, MonoImageOpenStatus *status,
 }
 
 /**
- * mono_image_loaded:
- * @name: path or assembly name of the image to load
- * @refonly: Check with respect to reflection-only loads?
+ * mono_image_loaded_full:
+ * \param name path or assembly name of the image to load
+ * \param refonly Check with respect to reflection-only loads?
  *
  * This routine verifies that the given image is loaded.
  * It checks either reflection-only loads only, or normal loads only, as specified by parameter.
  *
- * Returns: the loaded MonoImage, or NULL on failure.
+ * \returns the loaded \c MonoImage, or NULL on failure.
  */
 MonoImage *
 mono_image_loaded_full (const char *name, gboolean refonly)
@@ -1237,11 +1434,9 @@ mono_image_loaded_full (const char *name, gboolean refonly)
 
 /**
  * mono_image_loaded:
- * @name: path or assembly name of the image to load
- *
+ * \param name path or assembly name of the image to load
  * This routine verifies that the given image is loaded. Reflection-only loads do not count.
- *
- * Returns: the loaded MonoImage, or NULL on failure.
+ * \returns the loaded \c MonoImage, or NULL on failure.
  */
 MonoImage *
 mono_image_loaded (const char *name)
@@ -1267,6 +1462,9 @@ find_by_guid (gpointer key, gpointer val, gpointer user_data)
 		data->res = image;
 }
 
+/**
+ * mono_image_loaded_by_guid_full:
+ */
 MonoImage *
 mono_image_loaded_by_guid_full (const char *guid, gboolean refonly)
 {
@@ -1281,6 +1479,9 @@ mono_image_loaded_by_guid_full (const char *guid, gboolean refonly)
 	return data.res;
 }
 
+/**
+ * mono_image_loaded_by_guid:
+ */
 MonoImage *
 mono_image_loaded_by_guid (const char *guid)
 {
@@ -1354,18 +1555,27 @@ mono_image_open_from_data_internal (char *data, guint32 data_len, gboolean need_
 	return register_image (image);
 }
 
+/**
+ * mono_image_open_from_data_with_name:
+ */
 MonoImage *
 mono_image_open_from_data_with_name (char *data, guint32 data_len, gboolean need_copy, MonoImageOpenStatus *status, gboolean refonly, const char *name)
 {
 	return mono_image_open_from_data_internal (data, data_len, need_copy, status, refonly, FALSE, name);
 }
 
+/**
+ * mono_image_open_from_data_full:
+ */
 MonoImage *
 mono_image_open_from_data_full (char *data, guint32 data_len, gboolean need_copy, MonoImageOpenStatus *status, gboolean refonly)
 {
   return mono_image_open_from_data_with_name (data, data_len, need_copy, status, refonly, NULL);
 }
 
+/**
+ * mono_image_open_from_data:
+ */
 MonoImage *
 mono_image_open_from_data (char *data, guint32 data_len, gboolean need_copy, MonoImageOpenStatus *status)
 {
@@ -1397,8 +1607,17 @@ mono_image_open_from_module_handle (HMODULE module_handle, char* fname, gboolean
 }
 #endif
 
+/**
+ * mono_image_open_full:
+ */
 MonoImage *
 mono_image_open_full (const char *fname, MonoImageOpenStatus *status, gboolean refonly)
+{
+	return mono_image_open_a_lot (fname, status, refonly, FALSE);
+}
+
+MonoImage *
+mono_image_open_a_lot (const char *fname, MonoImageOpenStatus *status, gboolean refonly, gboolean load_from_context)
 {
 	MonoImage *image;
 	GHashTable *loaded_images = get_loaded_images_hash (refonly);
@@ -1441,7 +1660,7 @@ mono_image_open_full (const char *fname, MonoImageOpenStatus *status, gboolean r
 		fname_utf16 = g_utf8_to_utf16 (absfname, -1, NULL, NULL, NULL);
 		module_handle = MonoLoadImage (fname_utf16);
 		if (status && module_handle == NULL)
-			last_error = GetLastError ();
+			last_error = mono_w32error_get_last ();
 
 		/* mono_image_open_from_module_handle is called by _CorDllMain. */
 		image = g_hash_table_lookup (loaded_images, absfname);
@@ -1478,7 +1697,7 @@ mono_image_open_full (const char *fname, MonoImageOpenStatus *status, gboolean r
 	}
 #endif
 
-	absfname = mono_path_canonicalize (fname);
+	absfname = mono_path_resolve_symlinks (fname);
 
 	/*
 	 * The easiest solution would be to do all the loading inside the mutex,
@@ -1498,7 +1717,7 @@ mono_image_open_full (const char *fname, MonoImageOpenStatus *status, gboolean r
 	mono_images_unlock ();
 
 	// Image not loaded, load it now
-	image = do_mono_image_open (fname, status, TRUE, TRUE, refonly, FALSE);
+	image = do_mono_image_open (fname, status, TRUE, TRUE, refonly, FALSE, load_from_context);
 	if (image == NULL)
 		return NULL;
 
@@ -1507,13 +1726,12 @@ mono_image_open_full (const char *fname, MonoImageOpenStatus *status, gboolean r
 
 /**
  * mono_image_open:
- * @fname: filename that points to the module we want to open
- * @status: An error condition is returned in this field
- *
- * Returns: An open image of type %MonoImage or NULL on error. 
+ * \param fname filename that points to the module we want to open
+ * \param status An error condition is returned in this field
+ * \returns An open image of type \c MonoImage or NULL on error. 
  * The caller holds a temporary reference to the returned image which should be cleared 
- * when no longer needed by calling mono_image_close ().
- * if NULL, then check the value of @status for details on the error
+ * when no longer needed by calling \c mono_image_close.
+ * if NULL, then check the value of \p status for details on the error
  */
 MonoImage *
 mono_image_open (const char *fname, MonoImageOpenStatus *status)
@@ -1523,13 +1741,12 @@ mono_image_open (const char *fname, MonoImageOpenStatus *status)
 
 /**
  * mono_pe_file_open:
- * @fname: filename that points to the module we want to open
- * @status: An error condition is returned in this field
- *
- * Returns: An open image of type %MonoImage or NULL on error.  if
- * NULL, then check the value of @status for details on the error.
- * This variant for mono_image_open DOES NOT SET UP CLI METADATA.
- * It's just a PE file loader, used for FileVersionInfo.  It also does
+ * \param fname filename that points to the module we want to open
+ * \param status An error condition is returned in this field
+ * \returns An open image of type \c MonoImage or NULL on error.  if
+ * NULL, then check the value of \p status for details on the error.
+ * This variant for \c mono_image_open DOES NOT SET UP CLI METADATA.
+ * It's just a PE file loader, used for \c FileVersionInfo.  It also does
  * not use the image cache.
  */
 MonoImage *
@@ -1537,16 +1754,14 @@ mono_pe_file_open (const char *fname, MonoImageOpenStatus *status)
 {
 	g_return_val_if_fail (fname != NULL, NULL);
 	
-	return do_mono_image_open (fname, status, FALSE, TRUE, FALSE, FALSE);
+	return do_mono_image_open (fname, status, FALSE, TRUE, FALSE, FALSE, FALSE);
 }
 
 /**
  * mono_image_open_raw
- * @fname: filename that points to the module we want to open
- * @status: An error condition is returned in this field
- * 
- * Returns an image without loading neither pe or cli data.
- * 
+ * \param fname filename that points to the module we want to open
+ * \param status An error condition is returned in this field
+ * \returns an image without loading neither pe or cli data.
  * Use mono_image_load_pe_data and mono_image_load_cli_data to load them.  
  */
 MonoImage *
@@ -1554,7 +1769,7 @@ mono_image_open_raw (const char *fname, MonoImageOpenStatus *status)
 {
 	g_return_val_if_fail (fname != NULL, NULL);
 	
-	return do_mono_image_open (fname, status, FALSE, FALSE, FALSE, FALSE);
+	return do_mono_image_open (fname, status, FALSE, FALSE, FALSE, FALSE, FALSE);
 }
 
 /*
@@ -1565,9 +1780,12 @@ mono_image_open_raw (const char *fname, MonoImageOpenStatus *status)
 MonoImage *
 mono_image_open_metadata_only (const char *fname, MonoImageOpenStatus *status)
 {
-	return do_mono_image_open (fname, status, TRUE, TRUE, FALSE, TRUE);
+	return do_mono_image_open (fname, status, TRUE, TRUE, FALSE, TRUE, FALSE);
 }
 
+/**
+ * mono_image_fixup_vtable:
+ */
 void
 mono_image_fixup_vtable (MonoImage *image)
 {
@@ -1641,9 +1859,8 @@ free_array_cache_entry (gpointer key, gpointer val, gpointer user_data)
 
 /**
  * mono_image_addref:
- * @image: The image file we wish to add a reference to
- *
- *  Increases the reference count of an image.
+ * \param image The image file we wish to add a reference to
+ * Increases the reference count of an image.
  */
 void
 mono_image_addref (MonoImage *image)
@@ -1867,7 +2084,7 @@ mono_image_close_except_pools (MonoImage *image)
 	free_hash (image->pinvoke_scopes);
 	free_hash (image->pinvoke_scope_filenames);
 	free_hash (image->native_func_wrapper_cache);
-	free_hash (image->typespec_cache);
+	mono_conc_hashtable_destroy (image->typespec_cache);
 
 	mono_wrapper_caches_free (&image->wrapper_caches);
 
@@ -1979,8 +2196,7 @@ mono_image_close_finish (MonoImage *image)
 
 /**
  * mono_image_close:
- * @image: The image file we wish to close
- *
+ * \param image The image file we wish to close
  * Closes an image file, deallocates all memory consumed and
  * unmaps all possible sections of the file
  */
@@ -1993,9 +2209,8 @@ mono_image_close (MonoImage *image)
 
 /** 
  * mono_image_strerror:
- * @status: an code indicating the result from a recent operation
- *
- * Returns: a string describing the error
+ * \param status an code indicating the result from a recent operation
+ * \returns a string describing the error
  */
 const char *
 mono_image_strerror (MonoImageOpenStatus status)
@@ -2095,13 +2310,12 @@ mono_image_walk_resource_tree (MonoCLIImageInfo *info, guint32 res_id,
 
 /**
  * mono_image_lookup_resource:
- * @image: the image to look up the resource in
- * @res_id: A MONO_PE_RESOURCE_ID_ that represents the resource ID to lookup.
- * @lang_id: The language id.
- * @name: the resource name to lookup.
- *
- * Returns: NULL if not found, otherwise a pointer to the in-memory representation
- * of the given resource. The caller should free it using g_free () when no longer
+ * \param image the image to look up the resource in
+ * \param res_id A \c MONO_PE_RESOURCE_ID_ that represents the resource ID to lookup.
+ * \param lang_id The language id.
+ * \param name the resource name to lookup.
+ * \returns NULL if not found, otherwise a pointer to the in-memory representation
+ * of the given resource. The caller should free it using \c g_free when no longer
  * needed.
  */
 gpointer
@@ -2166,12 +2380,10 @@ mono_image_lookup_resource (MonoImage *image, guint32 res_id, guint32 lang_id, g
 
 /** 
  * mono_image_get_entry_point:
- * @image: the image where the entry point will be looked up.
- *
+ * \param image the image where the entry point will be looked up.
  * Use this routine to determine the metadata token for method that
  * has been flagged as the entry point.
- *
- * Returns: the token for the entry point method in the image
+ * \returns the token for the entry point method in the image
  */
 guint32
 mono_image_get_entry_point (MonoImage *image)
@@ -2181,15 +2393,15 @@ mono_image_get_entry_point (MonoImage *image)
 
 /**
  * mono_image_get_resource:
- * @image: the image where the resource will be looked up.
- * @offset: The offset to add to the resource
- * @size: a pointer to an int where the size of the resource will be stored
+ * \param image the image where the resource will be looked up.
+ * \param offset The offset to add to the resource
+ * \param size a pointer to an int where the size of the resource will be stored
  *
  * This is a low-level routine that fetches a resource from the
- * metadata that starts at a given @offset.  The @size parameter is
+ * metadata that starts at a given \p offset.  The \p size parameter is
  * filled with the data field as encoded in the metadata.
  *
- * Returns: the pointer to the resource whose offset is @offset.
+ * \returns the pointer to the resource whose offset is \p offset.
  */
 const char*
 mono_image_get_resource (MonoImage *image, guint32 offset, guint32 *size)
@@ -2221,7 +2433,7 @@ mono_image_load_file_for_image_checked (MonoImage *image, int fileidx, MonoError
 	const char *fname;
 	guint32 fname_id;
 
-	mono_error_init (error);
+	error_init (error);
 
 	if (fileidx < 1 || fileidx > t->rows)
 		return NULL;
@@ -2280,6 +2492,9 @@ done:
 	return res;
 }
 
+/**
+ * mono_image_load_file_for_image:
+ */
 MonoImage*
 mono_image_load_file_for_image (MonoImage *image, int fileidx)
 {
@@ -2291,13 +2506,13 @@ mono_image_load_file_for_image (MonoImage *image, int fileidx)
 
 /**
  * mono_image_get_strong_name:
- * @image: a MonoImage
- * @size: a guint32 pointer, or NULL.
+ * \param image a MonoImage
+ * \param size a \c guint32 pointer, or NULL.
  *
- * If the image has a strong name, and @size is not NULL, the value
+ * If the image has a strong name, and \p size is not NULL, the value
  * pointed to by size will have the size of the strong name.
  *
- * Returns: NULL if the image does not have a strong name, or a
+ * \returns NULL if the image does not have a strong name, or a
  * pointer to the public key.
  */
 const char*
@@ -2319,13 +2534,13 @@ mono_image_get_strong_name (MonoImage *image, guint32 *size)
 
 /**
  * mono_image_strong_name_position:
- * @image: a MonoImage
- * @size: a guint32 pointer, or NULL.
+ * \param image a \c MonoImage
+ * \param size a \c guint32 pointer, or NULL.
  *
- * If the image has a strong name, and @size is not NULL, the value
+ * If the image has a strong name, and \p size is not NULL, the value
  * pointed to by size will have the size of the strong name.
  *
- * Returns: the position within the image file where the strong name
+ * \returns the position within the image file where the strong name
  * is stored.
  */
 guint32
@@ -2345,15 +2560,15 @@ mono_image_strong_name_position (MonoImage *image, guint32 *size)
 
 /**
  * mono_image_get_public_key:
- * @image: a MonoImage
- * @size: a guint32 pointer, or NULL.
+ * \param image a \c MonoImage
+ * \param size a \c guint32 pointer, or NULL.
  *
- * This is used to obtain the public key in the @image.
+ * This is used to obtain the public key in the \p image.
  * 
- * If the image has a public key, and @size is not NULL, the value
+ * If the image has a public key, and \p size is not NULL, the value
  * pointed to by size will have the size of the public key.
  * 
- * Returns: NULL if the image does not have a public key, or a pointer
+ * \returns NULL if the image does not have a public key, or a pointer
  * to the public key.
  */
 const char*
@@ -2381,9 +2596,8 @@ mono_image_get_public_key (MonoImage *image, guint32 *size)
 
 /**
  * mono_image_get_name:
- * @name: a MonoImage
- *
- * Returns: the name of the assembly.
+ * \param name a \c MonoImage
+ * \returns the name of the assembly.
  */
 const char*
 mono_image_get_name (MonoImage *image)
@@ -2393,11 +2607,9 @@ mono_image_get_name (MonoImage *image)
 
 /**
  * mono_image_get_filename:
- * @image: a MonoImage
- *
- * Used to get the filename that hold the actual MonoImage
- *
- * Returns: the filename.
+ * \param image a \c MonoImage
+ * Used to get the filename that hold the actual \c MonoImage
+ * \returns the filename.
  */
 const char*
 mono_image_get_filename (MonoImage *image)
@@ -2405,12 +2617,18 @@ mono_image_get_filename (MonoImage *image)
 	return image->name;
 }
 
+/**
+ * mono_image_get_guid:
+ */
 const char*
 mono_image_get_guid (MonoImage *image)
 {
 	return image->guid;
 }
 
+/**
+ * mono_image_get_table_info:
+ */
 const MonoTableInfo*
 mono_image_get_table_info (MonoImage *image, int table_id)
 {
@@ -2419,6 +2637,9 @@ mono_image_get_table_info (MonoImage *image, int table_id)
 	return &image->tables [table_id];
 }
 
+/**
+ * mono_image_get_table_rows:
+ */
 int
 mono_image_get_table_rows (MonoImage *image, int table_id)
 {
@@ -2427,6 +2648,9 @@ mono_image_get_table_rows (MonoImage *image, int table_id)
 	return image->tables [table_id].rows;
 }
 
+/**
+ * mono_table_info_get_rows:
+ */
 int
 mono_table_info_get_rows (const MonoTableInfo *table)
 {
@@ -2435,11 +2659,9 @@ mono_table_info_get_rows (const MonoTableInfo *table)
 
 /**
  * mono_image_get_assembly:
- * @image: the MonoImage.
- *
+ * \param image the \c MonoImage .
  * Use this routine to get the assembly that owns this image.
- *
- * Returns: the assembly that holds this image.
+ * \returns the assembly that holds this image.
  */
 MonoAssembly* 
 mono_image_get_assembly (MonoImage *image)
@@ -2449,12 +2671,11 @@ mono_image_get_assembly (MonoImage *image)
 
 /**
  * mono_image_is_dynamic:
- * @image: the MonoImage
+ * \param image the \c MonoImage
  *
  * Determines if the given image was created dynamically through the
- * System.Reflection.Emit API
- *
- * Returns: TRUE if the image was created dynamically, FALSE if not.
+ * \c System.Reflection.Emit API
+ * \returns TRUE if the image was created dynamically, FALSE if not.
  */
 gboolean
 mono_image_is_dynamic (MonoImage *image)
@@ -2464,12 +2685,10 @@ mono_image_is_dynamic (MonoImage *image)
 
 /**
  * mono_image_has_authenticode_entry:
- * @image: the MonoImage
- *
+ * \param image the \c MonoImage
  * Use this routine to determine if the image has a Authenticode
  * Certificate Table.
- *
- * Returns: TRUE if the image contains an authenticode entry in the PE
+ * \returns TRUE if the image contains an authenticode entry in the PE
  * directory.
  */
 gboolean
@@ -2477,6 +2696,8 @@ mono_image_has_authenticode_entry (MonoImage *image)
 {
 	MonoCLIImageInfo *iinfo = (MonoCLIImageInfo *)image->image_info;
 	MonoDotNetHeader *header = &iinfo->cli_header;
+	if (!header)
+		return FALSE;
 	MonoPEDirEntry *de = &header->datadir.pe_certificate_table;
 	// the Authenticode "pre" (non ASN.1) header is 8 bytes long
 	return ((de->rva != 0) && (de->size > 8));
@@ -2597,8 +2818,7 @@ mono_image_unlock (MonoImage *image)
 
 /**
  * mono_image_property_lookup:
- *
- * Lookup a property on @image. Used to store very rare fields of MonoClass and MonoMethod.
+ * Lookup a property on \p image . Used to store very rare fields of \c MonoClass and \c MonoMethod .
  *
  * LOCKING: Takes the image lock
  */
@@ -2616,8 +2836,8 @@ mono_image_property_lookup (MonoImage *image, gpointer subject, guint32 property
 
 /**
  * mono_image_property_insert:
- *
- * Insert a new property @property with value @value on @subject in @image. Used to store very rare fields of MonoClass and MonoMethod.
+ * Insert a new property \p property with value \p value on \p subject in \p
+ * image. Used to store very rare fields of \c MonoClass and \c MonoMethod.
  *
  * LOCKING: Takes the image lock
  */
@@ -2632,8 +2852,7 @@ mono_image_property_insert (MonoImage *image, gpointer subject, guint32 property
 
 /**
  * mono_image_property_remove:
- *
- * Remove all properties associated with @subject in @image. Used to store very rare fields of MonoClass and MonoMethod.
+ * Remove all properties associated with \p subject in \p image. Used to store very rare fields of \c MonoClass and \c MonoMethod .
  *
  * LOCKING: Takes the image lock
  */

@@ -1,5 +1,6 @@
-/*
- * mini-mips.c: MIPS backend for the Mono code generator
+/**
+ * \file
+ * MIPS backend for the Mono code generator
  *
  * Authors:
  *   Mark Mason (mason@broadcom.com)
@@ -62,9 +63,6 @@ enum {
 static mono_mutex_t mini_arch_mutex;
 
 int mono_exc_esp_offset = 0;
-static int tls_mode = TLS_MODE_DETECT;
-static int lmf_pthread_key = -1;
-static int monothread_key = -1;
 
 /* Whenever the host is little-endian */
 static int little_endian;
@@ -97,23 +95,6 @@ static gpointer bp_trigger_page;
 		code = mips_emit_exc_by_name (code, exc_name);	\
 		cfg->bb_exit->max_offset += 16;				\
 	} while (0) 
-
-
-#define emit_linuxthreads_tls(code,dreg,key) do {\
-		int off1, off2;	\
-		off1 = offsets_from_pthread_key ((key), &off2);	\
-		g_assert_not_reached ();		\
-		ppc_lwz ((code), (dreg), off1, ppc_r2);	\
-		ppc_lwz ((code), (dreg), off2, (dreg));	\
-	} while (0);
-
-
-#define emit_tls_access(code,dreg,key) do {	\
-		switch (tls_mode) {	\
-		case TLS_MODE_LTHREADS: emit_linuxthreads_tls(code,dreg,key); break;	\
-		default: g_assert_not_reached ();	\
-		}	\
-	} while (0)
 
 #define MONO_EMIT_NEW_LOAD_R8(cfg,dr,addr) do { \
 		MonoInst *inst;				   \
@@ -408,17 +389,6 @@ mips_patch (guint32 *code, guint32 target)
 		g_assert_not_reached ();
 	}
 }
-
-#if 0
-static int
-offsets_from_pthread_key (guint32 key, int *offset2)
-{
-	int idx1 = key / 32;
-	int idx2 = key % 32;
-	*offset2 = idx2 * sizeof (gpointer);
-	return 284 + idx1 * sizeof (gpointer);
-}
-#endif
 
 static void mono_arch_compute_omit_fp (MonoCompile *cfg);
 
@@ -726,6 +696,12 @@ void
 mono_arch_cleanup (void)
 {
 	mono_os_mutex_destroy (&mini_arch_mutex);
+}
+
+gboolean
+mono_arch_have_fast_tls (void)
+{
+	return FALSE;
 }
 
 /*
@@ -1138,7 +1114,6 @@ get_call_info (MonoMemPool *mp, MonoMethodSignature *sig)
 		DEBUG(printf("param %d: ", i));
 		simpletype = mini_get_underlying_type (sig->params [i]);
 		switch (simpletype->type) {
-		case MONO_TYPE_BOOLEAN:
 		case MONO_TYPE_I1:
 		case MONO_TYPE_U1:
 			DEBUG(printf("1 byte\n"));
@@ -1146,7 +1121,6 @@ get_call_info (MonoMemPool *mp, MonoMethodSignature *sig)
 			add_int32_arg (cinfo, &cinfo->args[n]);
 			n++;
 			break;
-		case MONO_TYPE_CHAR:
 		case MONO_TYPE_I2:
 		case MONO_TYPE_U2:
 			DEBUG(printf("2 bytes\n"));
@@ -1165,11 +1139,7 @@ get_call_info (MonoMemPool *mp, MonoMethodSignature *sig)
 		case MONO_TYPE_U:
 		case MONO_TYPE_PTR:
 		case MONO_TYPE_FNPTR:
-		case MONO_TYPE_CLASS:
 		case MONO_TYPE_OBJECT:
-		case MONO_TYPE_STRING:
-		case MONO_TYPE_SZARRAY:
-		case MONO_TYPE_ARRAY:
 			cinfo->args [n].size = sizeof (gpointer);
 			add_int32_arg (cinfo, &cinfo->args[n]);
 			n++;
@@ -1285,23 +1255,17 @@ get_call_info (MonoMemPool *mp, MonoMethodSignature *sig)
 	{
 		simpletype = mini_get_underlying_type (sig->ret);
 		switch (simpletype->type) {
-		case MONO_TYPE_BOOLEAN:
 		case MONO_TYPE_I1:
 		case MONO_TYPE_U1:
 		case MONO_TYPE_I2:
 		case MONO_TYPE_U2:
-		case MONO_TYPE_CHAR:
 		case MONO_TYPE_I4:
 		case MONO_TYPE_U4:
 		case MONO_TYPE_I:
 		case MONO_TYPE_U:
 		case MONO_TYPE_PTR:
 		case MONO_TYPE_FNPTR:
-		case MONO_TYPE_CLASS:
 		case MONO_TYPE_OBJECT:
-		case MONO_TYPE_SZARRAY:
-		case MONO_TYPE_ARRAY:
-		case MONO_TYPE_STRING:
 			cinfo->ret.reg = mips_v0;
 			break;
 		case MONO_TYPE_U8:
@@ -1348,8 +1312,7 @@ debug_omit_fp (void)
 
 /**
  * mono_arch_compute_omit_fp:
- *
- *   Determine whenever the frame pointer can be eliminated.
+ * Determine whether the frame pointer can be eliminated.
  */
 static void
 mono_arch_compute_omit_fp (MonoCompile *cfg)
@@ -1918,7 +1881,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 			soffset += SIZEOF_REGISTER;
 		}
 		if (ovf_size != 0) {
-			mini_emit_memcpy (cfg, mips_sp, doffset, src->dreg, soffset, ovf_size * sizeof (gpointer), 0);
+			mini_emit_memcpy (cfg, mips_sp, doffset, src->dreg, soffset, ovf_size * sizeof (gpointer), SIZEOF_VOID_P);
 		}
 	} else if (ainfo->storage == ArgInFReg) {
 		int tmpr = mono_alloc_freg (cfg);
@@ -1946,7 +1909,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 			g_assert (ovf_size > 0);
 
 		EMIT_NEW_VARLOADA (cfg, load, vtcopy, vtcopy->inst_vtype);
-		mini_emit_memcpy (cfg, load->dreg, 0, src->dreg, 0, size, 0);
+		mini_emit_memcpy (cfg, load->dreg, 0, src->dreg, 0, size, SIZEOF_VOID_P);
 
 		if (ainfo->offset)
 			MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, mips_at, ainfo->offset, load->dreg);
@@ -3318,12 +3281,6 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			mips_nop (code);
 			break;
 		}
-		case OP_TLS_GET:
-			g_assert_not_reached();
-#if 0
-			emit_tls_access (code, ins->dreg, ins->inst_offset);
-#endif
-			break;
 		case OP_BIGMUL:
 			mips_mult (code, ins->sreg1, ins->sreg2);
 			mips_mflo (code, ins->dreg);
@@ -4570,7 +4527,7 @@ mono_arch_patch_code (MonoCompile *cfg, MonoMethod *method, MonoDomain *domain, 
 {
 	MonoJumpInfo *patch_info;
 
-	mono_error_init (error);
+	error_init (error);
 
 	for (patch_info = ji; patch_info; patch_info = patch_info->next) {
 		unsigned char *ip = patch_info->ip.i + code;
@@ -5164,20 +5121,8 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 		mips_load_const (code, mips_at, MIPS_LMF_MAGIC1);
 		mips_sw (code, mips_at, mips_sp, lmf_offset + G_STRUCT_OFFSET(MonoLMF, magic));
 
-		if (lmf_pthread_key != -1) {
-			g_assert_not_reached();
-#if 0
-			emit_tls_access (code, mips_temp, lmf_pthread_key);
-#endif
-			if (G_STRUCT_OFFSET (MonoJitTlsData, lmf)) {
-				int offset = G_STRUCT_OFFSET (MonoJitTlsData, lmf);
-				g_assert (mips_is_imm16(offset));
-				mips_addiu (code, mips_a0, mips_temp, offset);
-			}
-		} else {
-			/* This can/will clobber the a0-a3 registers */
-			mips_call (code, mips_t9, (gpointer)mono_get_lmf_addr);
-		}
+		/* This can/will clobber the a0-a3 registers */
+		mips_call (code, mips_t9, (gpointer)mono_get_lmf_addr);
 
 		/* mips_v0 is the result from mono_get_lmf_addr () (MonoLMF **) */
 		g_assert (mips_is_imm16(lmf_offset + G_STRUCT_OFFSET(MonoLMF, lmf_addr)));
@@ -5584,128 +5529,9 @@ mono_arch_emit_exceptions (MonoCompile *cfg)
 #endif
 }
 
-/*
- * Thread local storage support
- */
-static void
-setup_tls_access (void)
-{
-	guint32 ptk;
-	//guint32 *ins, *code;
-
-	if (tls_mode == TLS_MODE_FAILED)
-		return;
-
-	if (g_getenv ("MONO_NO_TLS")) {
-		tls_mode = TLS_MODE_FAILED;
-		return;
-	}
-
-	if (tls_mode == TLS_MODE_DETECT) {
-		/* XXX */
-		tls_mode = TLS_MODE_FAILED;
-		return;
-#if 0
-
-		ins = (guint32*)pthread_getspecific;
-		/* uncond branch to the real method */
-		if ((*ins >> 26) == 18) {
-			gint32 val;
-			val = (*ins & ~3) << 6;
-			val >>= 6;
-			if (*ins & 2) {
-				/* absolute */
-				ins = (guint32*)val;
-			} else {
-				ins = (guint32*) ((char*)ins + val);
-			}
-		}
-		code = &cmplwi_1023;
-		ppc_cmpli (code, 0, 0, ppc_r3, 1023);
-		code = &li_0x48;
-		ppc_li (code, ppc_r4, 0x48);
-		code = &blr_ins;
-		ppc_blr (code);
-		if (*ins == cmplwi_1023) {
-			int found_lwz_284 = 0;
-			for (ptk = 0; ptk < 20; ++ptk) {
-				++ins;
-				if (!*ins || *ins == blr_ins)
-					break;
-				if ((guint16)*ins == 284 && (*ins >> 26) == 32) {
-					found_lwz_284 = 1;
-					break;
-				}
-			}
-			if (!found_lwz_284) {
-				tls_mode = TLS_MODE_FAILED;
-				return;
-			}
-			tls_mode = TLS_MODE_LTHREADS;
-		} else if (*ins == li_0x48) {
-			++ins;
-			/* uncond branch to the real method */
-			if ((*ins >> 26) == 18) {
-				gint32 val;
-				val = (*ins & ~3) << 6;
-				val >>= 6;
-				if (*ins & 2) {
-					/* absolute */
-					ins = (guint32*)val;
-				} else {
-					ins = (guint32*) ((char*)ins + val);
-				}
-				code = &val;
-				ppc_li (code, ppc_r0, 0x7FF2);
-				if (ins [1] == val) {
-					/* Darwin on G4, implement */
-					tls_mode = TLS_MODE_FAILED;
-					return;
-				} else {
-					code = &val;
-					ppc_mfspr (code, ppc_r3, 104);
-					if (ins [1] != val) {
-						tls_mode = TLS_MODE_FAILED;
-						return;
-					}
-					tls_mode = TLS_MODE_DARWIN_G5;
-				}
-			} else {
-				tls_mode = TLS_MODE_FAILED;
-				return;
-			}
-		} else {
-			tls_mode = TLS_MODE_FAILED;
-			return;
-		}
-#endif
-	}
-	if (lmf_pthread_key == -1) {
-		ptk = mono_jit_tls_id;
-		if (ptk < 1024) {
-			/*g_print ("MonoLMF at: %d\n", ptk);*/
-			/*if (!try_offset_access (mono_get_lmf_addr (), ptk)) {
-				init_tls_failed = 1;
-				return;
-			}*/
-			lmf_pthread_key = ptk;
-		}
-	}
-	if (monothread_key == -1) {
-		ptk = mono_thread_get_tls_key ();
-		if (ptk < 1024) {
-			monothread_key = ptk;
-			/*g_print ("thread inited: %d\n", ptk);*/
-		} else {
-			/*g_print ("thread not inited yet %d\n", ptk);*/
-		}
-	}
-}
-
 void
 mono_arch_finish_init (void)
 {
-	setup_tls_access ();
 }
 
 void

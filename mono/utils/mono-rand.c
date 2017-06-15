@@ -1,5 +1,5 @@
-/*
- * mono-rand.c: 
+/**
+ * \file
  *
  * Authors:
  *      Mark Crichton (crichton@gimp.org)
@@ -26,7 +26,7 @@
 
 #ifdef HOST_WIN32
 // Windows specific implementation in mono-rand-windows.c
-#elif defined (HAVE_SYS_UN_H) && !defined(__native_client__)
+#elif defined (HAVE_SYS_UN_H)
 
 #include <errno.h>
 #include <fcntl.h>
@@ -51,7 +51,7 @@ get_entropy_from_egd (const char *path, guchar *buffer, int buffer_size, MonoErr
 	guint offset = 0;
 	int err = 0;
 
-	mono_error_init (error);
+	error_init (error);
 	
 	socket_fd = socket (PF_UNIX, SOCK_STREAM, 0);
 	if (socket_fd < 0) {
@@ -59,7 +59,7 @@ get_entropy_from_egd (const char *path, guchar *buffer, int buffer_size, MonoErr
 		err = errno;
 	} else {
 		egd_addr.sun_family = AF_UNIX;
-		strncpy (egd_addr.sun_path, path, sizeof (egd_addr.sun_path) - 1);
+		memcpy (egd_addr.sun_path, path, sizeof (egd_addr.sun_path) - 1);
 		egd_addr.sun_path [sizeof (egd_addr.sun_path) - 1] = '\0';
 		ret = connect (socket_fd, (struct sockaddr*) &egd_addr, sizeof (egd_addr));
 		err = errno;
@@ -136,7 +136,7 @@ mono_rand_open (void)
 		file = open (NAME_DEV_RANDOM, O_RDONLY);
 #endif
 	if (file < 0)
-		use_egd = g_getenv("MONO_EGD_SOCKET") != NULL;
+		use_egd = g_hasenv ("MONO_EGD_SOCKET");
 
 	status = 2;
 
@@ -155,16 +155,17 @@ mono_rand_try_get_bytes (gpointer *handle, guchar *buffer, gint buffer_size, Mon
 {
 	g_assert (handle);
 
-	mono_error_init (error);
+	error_init (error);
 
 	if (use_egd) {
-		const char *socket_path = g_getenv ("MONO_EGD_SOCKET");
+		char *socket_path = g_getenv ("MONO_EGD_SOCKET");
 		/* exception will be thrown in managed code */
 		if (socket_path == NULL) {
 			*handle = NULL;
 			return FALSE;
 		}
 		get_entropy_from_egd (socket_path, buffer, buffer_size, error);
+		g_free (socket_path);
 	} else {
 		/* Read until the buffer is filled. This may block if using NAME_DEV_RANDOM. */
 		gint count = 0;
@@ -224,7 +225,7 @@ mono_rand_try_get_bytes (gpointer *handle, guchar *buffer, gint buffer_size, Mon
 {
 	gint count = 0;
 
-	mono_error_init (error);
+	error_init (error);
 	
 	do {
 		if (buffer_size - count >= sizeof (gint32) && RAND_MAX >= 0xFFFFFFFF) {
@@ -254,14 +255,12 @@ mono_rand_close (gpointer provider)
 
 /**
  * mono_rand_try_get_uint32:
- * @handle: A pointer to an RNG handle. Handle is set to NULL on failure.
- * @val: A pointer to a 32-bit unsigned int, to which the result will be written.
- * @min: Result will be greater than or equal to this value.
- * @max: Result will be less than or equal to this value.
- *
- * Returns: FALSE on failure, TRUE on success.
- *
+ * \param handle A pointer to an RNG handle. Handle is set to NULL on failure.
+ * \param val A pointer to a 32-bit unsigned int, to which the result will be written.
+ * \param min Result will be greater than or equal to this value.
+ * \param max Result will be less than or equal to this value.
  * Extracts one 32-bit unsigned int from an RNG handle.
+ * \returns FALSE on failure, TRUE on success.
  */
 gboolean
 mono_rand_try_get_uint32 (gpointer *handle, guint32 *val, guint32 min, guint32 max, MonoError *error)

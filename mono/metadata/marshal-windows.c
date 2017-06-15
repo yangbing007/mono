@@ -1,5 +1,6 @@
-/*
- * marshal-windows.c: Windows marshal support.
+/**
+ * \file
+ * Windows marshal support.
  *
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
@@ -8,8 +9,8 @@
 #include <glib.h>
 
 #if defined(HOST_WIN32)
-#include <WinSock2.h>
-#include <Windows.h>
+#include <winsock2.h>
+#include <windows.h>
 #include <objbase.h>
 #include "mono/metadata/marshal-windows-internals.h"
 
@@ -93,7 +94,7 @@ ves_icall_System_Runtime_InteropServices_Marshal_StringToHGlobalUni (MonoString 
 }
 
 gpointer
-mono_string_to_lpstr (MonoString *s)
+mono_string_to_utf8str (MonoString *s)
 {
 	char *as, *tmp;
 	glong len;

@@ -138,7 +138,7 @@ namespace System.Text.RegularExpressions {
 #else
         // desktop build still uses non-generic collections for AppCompat with .NET Framework 3.5 pre-compiled assemblies
         protected internal Hashtable caps;
-        protected internal Hashtable capnames;        
+        protected internal Hashtable capnames;
 #endif
         protected internal String[]  capslist;               // if captures are sparse or named captures are used, this is the sorted list of names
         protected internal int       capsize;                // the size of the capture array
@@ -405,7 +405,7 @@ namespace System.Text.RegularExpressions {
         * This method is internal virtual so the jit does not inline it.
         */
         [
-#if FEATURE_MONO_CAS
+#if MONO_FEATURE_CAS
             HostProtection(MayLeakOnAbort=true),
 #endif
             MethodImplAttribute(MethodImplOptions.NoInlining)
@@ -445,7 +445,7 @@ namespace System.Text.RegularExpressions {
         ///       Unescapes any escaped characters in the input string.
         ///    </para>
         /// </devdoc>
-        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="Unescape", Justification="[....]: already shipped since v1 - can't fix without causing a breaking change")]
+        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="Unescape", Justification="Microsoft: already shipped since v1 - can't fix without causing a breaking change")]
         public static String Unescape(String str) {
             if (str==null)
                 throw new ArgumentNullException("str");
@@ -472,7 +472,6 @@ namespace System.Text.RegularExpressions {
             }
         }
 
-#if NETSTANDARD
         [CLSCompliant (false)]
         protected IDictionary Caps
         {
@@ -527,7 +526,6 @@ namespace System.Text.RegularExpressions {
                 }
             }
         }
-#endif
 
         /// <devdoc>
         ///    <para>
@@ -1252,12 +1250,12 @@ namespace System.Text.RegularExpressions {
 #if !(SILVERLIGHT || FULL_AOT_RUNTIME)
         /// <devdoc>
         /// </devdoc>
-#if FEATURE_MONO_CAS
+#if MONO_FEATURE_CAS
         [HostProtection(MayLeakOnAbort=true)]
 #endif
         [ResourceExposure(ResourceScope.Machine)] // The AssemblyName is interesting.
         [ResourceConsumption(ResourceScope.Machine)]
-        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="assemblyname", Justification="[....]: already shipped since v1 - can't fix without causing a breaking change")]
+        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="assemblyname", Justification="Microsoft: already shipped since v1 - can't fix without causing a breaking change")]
         public static void CompileToAssembly(RegexCompilationInfo[] regexinfos, AssemblyName assemblyname) {
         
             CompileToAssemblyInternal(regexinfos, assemblyname, null, null);
@@ -1265,22 +1263,22 @@ namespace System.Text.RegularExpressions {
 
         /// <devdoc>
         /// </devdoc>
-#if FEATURE_MONO_CAS
+#if MONO_FEATURE_CAS
         [HostProtection(MayLeakOnAbort=true)]
 #endif
         [ResourceExposure(ResourceScope.Machine)] // The AssemblyName is interesting.
         [ResourceConsumption(ResourceScope.Machine)]
-        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="assemblyname", Justification="[....]: already shipped since v1 - can't fix without causing a breaking change")]
+        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="assemblyname", Justification="Microsoft: already shipped since v1 - can't fix without causing a breaking change")]
         public static void CompileToAssembly(RegexCompilationInfo[] regexinfos, AssemblyName assemblyname, CustomAttributeBuilder[] attributes) {
             CompileToAssemblyInternal(regexinfos, assemblyname, attributes, null);
         }
 
-#if FEATURE_MONO_CAS
+#if MONO_FEATURE_CAS
         [HostProtection(MayLeakOnAbort=true)]
 #endif
         [ResourceExposure(ResourceScope.Machine)]
         [ResourceConsumption(ResourceScope.Machine)]
-        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="assemblyname", Justification="[....]: already shipped since v1 - can't fix without causing a breaking change")]
+        [SuppressMessage("Microsoft.Naming","CA1704:IdentifiersShouldBeSpelledCorrectly", MessageId="assemblyname", Justification="Microsoft: already shipped since v1 - can't fix without causing a breaking change")]
         public static void CompileToAssembly(RegexCompilationInfo[] regexinfos, AssemblyName assemblyname, CustomAttributeBuilder[] attributes, String resourceFile) {
             CompileToAssemblyInternal(regexinfos, assemblyname, attributes, resourceFile);
         }
@@ -1408,12 +1406,16 @@ namespace System.Text.RegularExpressions {
         /// <devdoc>
         /// </devdoc>
         protected bool UseOptionC() {
-		/* Mono: Set to false until we investigate  https://bugzilla.xamarin.com/show_bug.cgi?id=25671 */
-	    return false;
 #if FULL_AOT_RUNTIME
             return false;
 #else
+
+#if MONO
+            /* Mono: Set to false until we investigate  https://bugzilla.xamarin.com/show_bug.cgi?id=25671 */
+            return false;
+#else
             return(roptions & RegexOptions.Compiled) != 0;
+#endif
 #endif
         }
 #endif

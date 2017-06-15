@@ -1,5 +1,6 @@
-/*
- * dynamic-image.c: Images created at runtime.
+/**
+ * \file
+ * Images created at runtime.
  *   
  * 
  * Author:
@@ -184,15 +185,28 @@ dynamic_image_unlock (MonoDynamicImage *image)
 	mono_image_unlock ((MonoImage*)image);
 }
 
+#ifndef DISABLE_REFLECTION_EMIT
+/*
+ * mono_dynamic_image_register_token:
+ *
+ *   Register the TOKEN->OBJ mapping in the mapping table in ASSEMBLY. This is required for
+ * the Module.ResolveXXXToken () methods to work.
+ */
 void
-mono_dynamic_image_register_token (MonoDynamicImage *assembly, guint32 token, MonoObject *obj)
+mono_dynamic_image_register_token (MonoDynamicImage *assembly, guint32 token, MonoObjectHandle obj)
 {
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	dynamic_image_lock (assembly);
-	mono_g_hash_table_insert (assembly->tokens, GUINT_TO_POINTER (token), obj);
+	mono_g_hash_table_insert (assembly->tokens, GUINT_TO_POINTER (token), MONO_HANDLE_RAW (obj));
 	dynamic_image_unlock (assembly);
 }
+#else
+void
+mono_dynamic_image_register_token (MonoDynamicImage *assembly, guint32 token, MonoObjectHandle obj)
+{
+}
+#endif
 
 static MonoObject*
 lookup_dyn_token (MonoDynamicImage *assembly, guint32 token)
@@ -207,6 +221,22 @@ lookup_dyn_token (MonoDynamicImage *assembly, guint32 token)
 
 	return obj;
 }
+
+#ifndef DISABLE_REFLECTION_EMIT
+MonoObjectHandle
+mono_dynamic_image_get_registered_token (MonoDynamicImage *dynimage, guint32 token, MonoError *error)
+{
+	error_init (error);
+	return MONO_HANDLE_NEW (MonoObject, lookup_dyn_token (dynimage, token));
+}
+#else /* DISABLE_REFLECTION_EMIT */
+MonoObjectHandle
+mono_dynamic_image_get_registered_token (MonoDynamicImage *dynimage, guint32 token, MonoError *error)
+{
+	g_assert_not_reached ();
+	return NULL_HANDLE;
+}
+#endif
 
 /**
  * 
@@ -243,7 +273,7 @@ mono_reflection_lookup_dynamic_token (MonoImage *image, guint32 token, gboolean 
 	MonoObject *obj;
 	MonoClass *klass;
 
-	mono_error_init (error);
+	error_init (error);
 	
 	obj = lookup_dyn_token (assembly, token);
 	if (!obj) {
@@ -260,43 +290,13 @@ mono_reflection_lookup_dynamic_token (MonoImage *image, guint32 token, gboolean 
 	gpointer result = mono_reflection_resolve_object (image, obj, handle_class, context, error);
 	return result;
 }
-
-/*
- * mono_image_register_token:
- *
- *   Register the TOKEN->OBJ mapping in the mapping table in ASSEMBLY. This is required for
- * the Module.ResolveXXXToken () methods to work.
- */
-void
-mono_image_register_token (MonoDynamicImage *assembly, guint32 token, MonoObject *obj)
-{
-	MonoObject *prev;
-
-	dynamic_image_lock (assembly);
-	prev = (MonoObject *)mono_g_hash_table_lookup (assembly->tokens, GUINT_TO_POINTER (token));
-	if (prev) {
-		/* There could be multiple MethodInfo objects with the same token */
-		//g_assert (prev == obj);
-	} else {
-		mono_g_hash_table_insert (assembly->tokens, GUINT_TO_POINTER (token), obj);
-	}
-	dynamic_image_unlock (assembly);
-}
-
 #else /* DISABLE_REFLECTION_EMIT */
-
 gpointer
 mono_reflection_lookup_dynamic_token (MonoImage *image, guint32 token, gboolean valid_token, MonoClass **handle_class, MonoGenericContext *context, MonoError *error)
 {
-	mono_error_init (error);
+	error_init (error);
 	return NULL;
 }
-
-void
-mono_image_register_token (MonoDynamicImage *assembly, guint32 token, MonoObject *obj)
-{
-}
-
 #endif /* DISABLE_REFLECTION_EMIT */
 
 #ifndef DISABLE_REFLECTION_EMIT

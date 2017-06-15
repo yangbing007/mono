@@ -1,5 +1,6 @@
-/*
- * main.c: The main entry point for the mono executable
+/**
+ * \file
+ * The main entry point for the mono executable
  *
  * The main entry point does a few things:
  * 
@@ -280,9 +281,10 @@ probe_embedded (const char *program, int *ref_argc, char **ref_argv [])
 
 	mono_register_bundled_assemblies ((const MonoBundledAssembly **) assemblies->data);
 	new_argv = g_new (char *, (*ref_argc)+1);
-	for (j = 0; j < *ref_argc; j++)
-		new_argv [j] = (*ref_argv)[j];
-	new_argv [j] = entry_point;
+	new_argv [0] = (*ref_argv)[0];
+	new_argv [1] = entry_point;
+	for (j = 1; j < *ref_argc; j++)
+		new_argv [j+1] = (*ref_argv)[j];
 	*ref_argv = new_argv;
 	(*ref_argc)++;
 	

@@ -31,7 +31,6 @@
 //
 
 using System.Runtime.Serialization;
-using System.Security.Permissions;
 
 namespace System.Drawing.Printing {
 
@@ -45,12 +44,12 @@ namespace System.Drawing.Printing {
 //			this.settings = settings;
 		}
 
+#if !NETSTANDARD1_6
 		protected InvalidPrinterException (SerializationInfo info, StreamingContext context)
 			: base (info, context)
 		{
 		}
 
-		[SecurityPermission (SecurityAction.Demand, SerializationFormatter = true)]
 		public override void GetObjectData (SerializationInfo info, StreamingContext context)
 		{
 			if (info == null)
@@ -58,7 +57,8 @@ namespace System.Drawing.Printing {
 
 			base.GetObjectData (info, context);
 		}
-		
+#endif
+
 		private static string GetMessage(PrinterSettings settings)
 		{
 			if (settings.PrinterName == null || settings.PrinterName == String.Empty)

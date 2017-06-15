@@ -694,7 +694,6 @@ namespace System.Linq
             foreach (TSource element in second) yield return element;
         }
 
-#if NETSTANDARD
         public static IEnumerable<TSource> Append<TSource>(this IEnumerable<TSource> source, TSource element)
         {
             if (source == null) throw Error.ArgumentNull("source");
@@ -718,7 +717,6 @@ namespace System.Linq
             yield return element;
             foreach (TSource e1 in source) yield return e1;
         }
-#endif
 
         public static IEnumerable<TResult> Zip<TFirst, TSecond, TResult>(this IEnumerable<TFirst> first, IEnumerable<TSecond> second, Func<TFirst, TSecond, TResult> resultSelector) {
             if (first == null) throw Error.ArgumentNull("first");
@@ -2154,7 +2152,7 @@ namespace System.Linq
 
         internal int InternalGetHashCode(TKey key)
         {
-            //[....] DevDivBugs 171937. work around comparer implementations that throw when passed null
+            //Microsoft DevDivBugs 171937. work around comparer implementations that throw when passed null
             return (key == null) ? 0 : comparer.GetHashCode(key) & 0x7FFFFFFF;
         }
 
@@ -2372,7 +2370,7 @@ namespace System.Linq
 
         internal int InternalGetHashCode(TElement value)
         {
-            //[....] DevDivBugs 171937. work around comparer implementations that throw when passed null
+            //Microsoft DevDivBugs 171937. work around comparer implementations that throw when passed null
             return (value == null) ? 0 : comparer.GetHashCode(value) & 0x7FFFFFFF;
         }
 

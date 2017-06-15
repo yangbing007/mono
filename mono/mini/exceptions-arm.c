@@ -1,5 +1,6 @@
-/*
- * exceptions-arm.c: exception support for ARM
+/**
+ * \file
+ * exception support for ARM
  *
  * Authors:
  *   Dietmar Maurer (dietmar@ximian.com)
@@ -336,11 +337,10 @@ mono_arch_get_rethrow_exception (MonoTrampInfo **info, gboolean aot)
 
 /**
  * mono_arch_get_throw_corlib_exception:
- *
- * Returns a function pointer which can be used to raise 
+ * \returns a function pointer which can be used to raise 
  * corlib exceptions. The returned function has the following 
  * signature: void (*func) (guint32 ex_token, guint32 offset); 
- * Here, offset is the offset which needs to be substracted from the caller IP 
+ * Here, \c offset is the offset which needs to be substracted from the caller IP 
  * to get the IP of the throw. Passing the offset has the advantage that it 
  * needs no relocations in the caller.
  * On ARM, the ip is passed instead of an offset.
@@ -465,19 +465,23 @@ mono_arch_unwind_frame (MonoDomain *domain, MonoJitTlsData *jit_tls,
 	} else if (*lmf) {
 
 		if (((gsize)(*lmf)->previous_lmf) & 2) {
-			/* 
-			 * This LMF entry is created by the soft debug code to mark transitions to
-			 * managed code done during invokes.
-			 */
 			MonoLMFExt *ext = (MonoLMFExt*)(*lmf);
 
-			g_assert (ext->debugger_invoke);
-
-			memcpy (new_ctx, &ext->ctx, sizeof (MonoContext));
+			if (ext->debugger_invoke) {
+				/*
+				 * This LMF entry is created by the soft debug code to mark transitions to
+				 * managed code done during invokes.
+				 */
+				frame->type = FRAME_TYPE_DEBUGGER_INVOKE;
+				memcpy (new_ctx, &ext->ctx, sizeof (MonoContext));
+			} else if (ext->interp_exit) {
+				frame->type = FRAME_TYPE_INTERP_TO_MANAGED;
+				frame->interp_exit_data = ext->interp_exit_data;
+			} else {
+				g_assert_not_reached ();
+			}
 
 			*lmf = (gpointer)(((gsize)(*lmf)->previous_lmf) & ~3);
-
-			frame->type = FRAME_TYPE_DEBUGGER_INVOKE;
 
 			return TRUE;
 		}
@@ -527,7 +531,7 @@ mono_arch_unwind_frame (MonoDomain *domain, MonoJitTlsData *jit_tls,
 static void
 handle_signal_exception (gpointer obj)
 {
-	MonoJitTlsData *jit_tls = mono_native_tls_get_value (mono_jit_tls_id);
+	MonoJitTlsData *jit_tls = mono_tls_get_jit_tls ();
 	MonoContext ctx;
 
 	memcpy (&ctx, &jit_tls->ex_ctx, sizeof (MonoContext));
@@ -562,7 +566,7 @@ mono_arch_handle_exception (void *ctx, gpointer obj)
 	 * signal is disabled, and we could run arbitrary code though the debugger. So
 	 * resume into the normal stack and do most work there if possible.
 	 */
-	MonoJitTlsData *jit_tls = mono_native_tls_get_value (mono_jit_tls_id);
+	MonoJitTlsData *jit_tls = mono_tls_get_jit_tls ();
 	guint64 sp = UCONTEXT_REG_SP (sigctx);
 
 	/* Pass the ctx parameter in TLS */

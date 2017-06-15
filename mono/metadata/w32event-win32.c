@@ -1,5 +1,6 @@
-/*
- * w32event-win32.c: Runtime support for managed Event on Win32
+/**
+ * \file
+ * Runtime support for managed Event on Win32
  *
  * Author:
  *	Ludovic Henry (luhenry@microsoft.com)
@@ -11,6 +12,8 @@
 
 #include <windows.h>
 #include <winbase.h>
+#include <mono/metadata/handle.h>
+#include <mono/utils/mono-error-internals.h>
 
 void
 mono_w32event_init (void)
@@ -21,6 +24,12 @@ gpointer
 mono_w32event_create (gboolean manual, gboolean initial)
 {
 	return CreateEvent (NULL, manual, initial, NULL);
+}
+
+gboolean
+mono_w32event_close (gpointer handle)
+{
+	return CloseHandle (handle);
 }
 
 void
@@ -36,13 +45,22 @@ mono_w32event_reset (gpointer handle)
 }
 
 gpointer
-ves_icall_System_Threading_Events_CreateEvent_internal (MonoBoolean manual, MonoBoolean initial, MonoString *name, gint32 *error)
+ves_icall_System_Threading_Events_CreateEvent_internal (MonoBoolean manual, MonoBoolean initial, MonoStringHandle name, gint32 *err, MonoError *error)
 {
 	gpointer event;
 
-	event = CreateEvent (NULL, manual, initial, name ? mono_string_chars (name) : NULL);
-
-	*error = GetLastError ();
+	error_init (error);
+	
+	uint32_t gchandle = 0;
+	gunichar2 *uniname = NULL;
+	if (!MONO_HANDLE_IS_NULL (name))
+		uniname = mono_string_handle_pin_chars (name, &gchandle);
+	MONO_ENTER_GC_SAFE;
+	event = CreateEvent (NULL, manual, initial, uniname);
+	*err = GetLastError ();
+	MONO_EXIT_GC_SAFE;
+	if (gchandle)
+		mono_gchandle_free (gchandle);
 
 	return event;
 }
@@ -66,15 +84,28 @@ ves_icall_System_Threading_Events_CloseEvent_internal (gpointer handle)
 }
 
 gpointer
-ves_icall_System_Threading_Events_OpenEvent_internal (MonoString *name, gint32 rights, gint32 *error)
+ves_icall_System_Threading_Events_OpenEvent_internal (MonoStringHandle name, gint32 rights, gint32 *err, MonoError *error)
 {
 	gpointer handle;
 
-	*error = ERROR_SUCCESS;
+	error_init (error);
 
-	handle = OpenEvent (rights, FALSE, mono_string_chars (name));
+	*err = ERROR_SUCCESS;
+
+	uint32_t gchandle = 0;
+	gunichar2 *uniname = NULL;
+
+	if (!MONO_HANDLE_IS_NULL (name))
+		uniname = mono_string_handle_pin_chars (name, &gchandle);
+
+	MONO_ENTER_GC_SAFE;
+	handle = OpenEvent (rights, FALSE, uniname);
 	if (!handle)
-		*error = GetLastError ();
+		*err = GetLastError ();
+	MONO_EXIT_GC_SAFE;
+
+	if (gchandle)
+		mono_gchandle_free (gchandle);
 
 	return handle;
 }

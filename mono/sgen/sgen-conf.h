@@ -1,5 +1,6 @@
-/*
- * sgen-conf.h: Tunable parameters and debugging switches.
+/**
+ * \file
+ * Tunable parameters and debugging switches.
  *
  * Copyright 2001-2003 Ximian, Inc
  * Copyright 2003-2010 Novell, Inc.
@@ -35,13 +36,6 @@ typedef mword SgenDescriptor;
 #else
 #define HEAVY_STAT(x)
 #endif
-
-/*
- * Define this to allow the user to change the nursery size by
- * specifying its value in the MONO_GC_PARAMS environmental
- * variable. See mono_gc_base_init for details.
- */
-#define USER_CONFIG 1
 
 /*
  * The binary protocol enables logging a lot of the GC ativity in a way that is not very
@@ -209,5 +203,29 @@ typedef mword SgenDescriptor;
 #define SGEN_CEMENT_HASH_SIZE	(1 << SGEN_CEMENT_HASH_SHIFT)
 #define SGEN_CEMENT_HASH(hv)	(((hv) ^ ((hv) >> SGEN_CEMENT_HASH_SHIFT)) & (SGEN_CEMENT_HASH_SIZE - 1))
 #define SGEN_CEMENT_THRESHOLD	1000
+
+/*
+ * Default values for the nursery size
+ */
+#define SGEN_DEFAULT_NURSERY_MIN_SIZE	(1 << 19)
+#define SGEN_DEFAULT_NURSERY_SIZE	(1 << 22)
+#define SGEN_DEFAULT_NURSERY_MAX_SIZE	(1 << 25)
+
+/*
+ * We are trying to keep pauses lower than this (ms). We use it for dynamic nursery
+ * sizing heuristics. We are keeping leeway in order to be prepared for work-load
+ * variations.
+ */
+#define SGEN_DEFAULT_MAX_PAUSE_TIME 30
+#define SGEN_DEFAULT_MAX_PAUSE_MARGIN 0.66f
+
+
+#define SGEN_PAUSE_MODE_MAX_PAUSE_MARGIN 0.5f
+
+/*
+ * In practice, for nurseries smaller than this, the parallel minor tends to be
+ * ineffective, even leading to regressions. Avoid using it for smaller nurseries.
+ */
+#define SGEN_PARALLEL_MINOR_MIN_NURSERY_SIZE (1 << 24)
 
 #endif

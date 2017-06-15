@@ -1,5 +1,6 @@
-/*
- * null-gc.c: GC implementation using malloc: will leak everything, just for testing.
+/**
+ * \file
+ * GC implementation using malloc: will leak everything, just for testing.
  *
  * Copyright 2001-2003 Ximian, Inc (http://www.ximian.com)
  * Copyright 2004-2011 Novell, Inc (http://www.novell.com)
@@ -160,6 +161,12 @@ mono_gc_make_descr_for_array (int vector, gsize *elem_bitmap, int numbits, size_
 
 void*
 mono_gc_make_descr_from_bitmap (gsize *bitmap, int numbits)
+{
+	return NULL;
+}
+
+void*
+mono_gc_make_vector_descr (void)
 {
 	return NULL;
 }
@@ -419,9 +426,15 @@ mono_gc_is_disabled (void)
 }
 
 void
-mono_gc_wbarrier_value_copy_bitmap (gpointer _dest, gpointer _src, int size, unsigned bitmap)
+mono_gc_wbarrier_range_copy (gpointer _dest, gpointer _src, int size)
 {
 	g_assert_not_reached ();
+}
+
+void*
+mono_gc_get_range_copy_func (void)
+{
+	return &mono_gc_wbarrier_range_copy;
 }
 
 guint8*
@@ -442,11 +455,6 @@ void*
 mono_gc_get_nursery (int *shift_bits, size_t *size)
 {
 	return NULL;
-}
-
-void
-mono_gc_set_current_thread_appdomain (MonoDomain *domain)
-{
 }
 
 gboolean
@@ -557,8 +565,5 @@ mono_gc_is_null (void)
 }
 #else
 
-#ifdef _MSC_VER
-// Quiet Visual Studio linker warning, LNK4221, in cases when this source file intentional ends up empty.
-void __mono_win32_null_gc_quiet_lnk4221(void) {}
-#endif
+MONO_EMPTY_SOURCE_FILE (null_gc);
 #endif /* HAVE_NULL_GC */

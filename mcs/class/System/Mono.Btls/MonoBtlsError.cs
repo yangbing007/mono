@@ -23,7 +23,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-// #if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 using System;
 using System.IO;
 using System.Text;
@@ -38,16 +38,22 @@ namespace Mono.Btls
 {
 	static class MonoBtlsError
 	{
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (MonoBtlsObject.BTLS_DYLIB)]
 		extern static int mono_btls_error_peek_error ();
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (MonoBtlsObject.BTLS_DYLIB)]
 		extern static int mono_btls_error_get_error ();
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (MonoBtlsObject.BTLS_DYLIB)]
 		extern static void mono_btls_error_clear_error ();
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (MonoBtlsObject.BTLS_DYLIB)]
+		extern static int mono_btls_error_peek_error_line (out IntPtr file, out int line);
+
+		[DllImport (MonoBtlsObject.BTLS_DYLIB)]
+		extern static int mono_btls_error_get_error_line (out IntPtr file, out int line);
+
+		[DllImport (MonoBtlsObject.BTLS_DYLIB)]
 		extern static void mono_btls_error_get_error_string_n (int error, IntPtr buf, int len);
 
 		public static int PeekError ()
@@ -78,6 +84,28 @@ namespace Mono.Btls
 				Marshal.FreeHGlobal (buffer);
 			}
 		}
+
+		public static int PeekError (out string file, out int line)
+		{
+			IntPtr filePtr;
+			var error = mono_btls_error_peek_error_line (out filePtr, out line);
+			if (filePtr != IntPtr.Zero)
+				file = Marshal.PtrToStringAnsi (filePtr);
+			else
+				file = null;
+			return error;
+		}
+
+		public static int GetError (out string file, out int line)
+		{
+			IntPtr filePtr;
+			var error = mono_btls_error_get_error_line (out filePtr, out line);
+			if (filePtr != IntPtr.Zero)
+				file = Marshal.PtrToStringAnsi (filePtr);
+			else
+				file = null;
+			return error;
+		}
 	}
 }
-// #endif
+#endif

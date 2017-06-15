@@ -1,4 +1,4 @@
-//
+﻿//
 // MonoTlsSettings.cs
 //
 // Author:
@@ -65,6 +65,13 @@ namespace Mono.Security.Interface
 		}
 
 		/*
+		 * Use custom time for certificate expiration checks
+		 */
+		public DateTime? CertificateValidationTime {
+			get; set;
+		}
+
+		/*
 		 * This is only supported if CertificateValidationHelper.SupportsTrustAnchors is true.
 		 */
 		public X509CertificateCollection TrustAnchors {
@@ -72,6 +79,10 @@ namespace Mono.Security.Interface
 		}
 
 		public object UserSettings {
+			get; set;
+		}
+
+		internal string[] CertificateSearchPaths {
 			get; set;
 		}
 
@@ -161,7 +172,14 @@ namespace Mono.Security.Interface
 			UserSettings = other.UserSettings;
 			EnabledProtocols = other.EnabledProtocols;
 			EnabledCiphers = other.EnabledCiphers;
-			TrustAnchors = other.TrustAnchors;
+			CertificateValidationTime = other.CertificateValidationTime;
+			if (other.TrustAnchors != null)
+				TrustAnchors = new X509CertificateCollection (other.TrustAnchors);
+			if (other.CertificateSearchPaths != null) {
+				CertificateSearchPaths = new string [other.CertificateSearchPaths.Length];
+				other.CertificateSearchPaths.CopyTo (CertificateSearchPaths, 0);
+			}
+
 			cloned = true;
 		}
 

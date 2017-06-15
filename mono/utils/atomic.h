@@ -1,5 +1,6 @@
-/*
- * atomic.h:  Atomic operations
+/**
+ * \file
+ * Atomic operations
  *
  * Author:
  *	Dick Porter (dick@ximian.com)
@@ -455,6 +456,12 @@ extern void InterlockedWrite(volatile gint32 *dst, gint32 val);
 extern void InterlockedWrite64(volatile gint64 *dst, gint64 val);
 extern void InterlockedWritePointer(volatile gpointer *dst, gpointer val);
 
+#endif
+
+#if SIZEOF_VOID_P == 4
+#define InterlockedAddP(p,add) InterlockedAdd ((volatile gint32*)p, (gint32)add)
+#else
+#define InterlockedAddP(p,add) InterlockedAdd64 ((volatile gint64*)p, (gint64)add)
 #endif
 
 #endif /* _WAPI_ATOMIC_H_ */

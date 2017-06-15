@@ -39,8 +39,10 @@ mono_read (BIO *bio, char *out, int outl)
 
 	ret = mono->read_func (mono->instance, out, outl, &wantMore);
 
-	if (ret < 0)
+	if (ret < 0) {
+		errno = EIO;
 		return -1;
+	}
 	if (ret > 0)
 		return ret;
 
@@ -114,7 +116,7 @@ static const BIO_METHOD mono_method = {
 	NULL, NULL, mono_ctrl, mono_new, mono_free, NULL
 };
 
-BIO *
+MONO_API BIO *
 mono_btls_bio_mono_new (void)
 {
 	BIO *bio;
@@ -136,7 +138,7 @@ mono_btls_bio_mono_new (void)
 	return bio;
 }
 
-void
+MONO_API void
 mono_btls_bio_mono_initialize (BIO *bio, const void *instance,
 			      MonoBtlsReadFunc read_func, MonoBtlsWriteFunc write_func,
 			      MonoBtlsControlFunc control_func)
@@ -151,55 +153,55 @@ mono_btls_bio_mono_initialize (BIO *bio, const void *instance,
 	bio->init = 1;
 }
 
-int
+MONO_API int
 mono_btls_bio_read (BIO *bio, void *data, int len)
 {
 	return BIO_read (bio, data, len);
 }
 
-int
+MONO_API int
 mono_btls_bio_write (BIO *bio, const void *data, int len)
 {
 	return BIO_write (bio, data, len);
 }
 
-int
+MONO_API int
 mono_btls_bio_flush (BIO *bio)
 {
 	return BIO_flush (bio);
 }
 
-int
+MONO_API int
 mono_btls_bio_indent (BIO *bio, unsigned indent, unsigned max_indent)
 {
 	return BIO_indent (bio, indent, max_indent);
 }
 
-int
+MONO_API int
 mono_btls_bio_hexdump (BIO *bio, const uint8_t *data, int len, unsigned indent)
 {
 	return BIO_hexdump (bio, data, len, indent);
 }
 
-void
+MONO_API void
 mono_btls_bio_print_errors (BIO *bio)
 {
 	BIO_print_errors (bio);
 }
 
-void
+MONO_API void
 mono_btls_bio_free (BIO *bio)
 {
 	BIO_free (bio);
 }
 
-BIO *
+MONO_API BIO *
 mono_btls_bio_mem_new (void)
 {
 	return BIO_new (BIO_s_mem ());
 }
 
-int
+MONO_API int
 mono_btls_bio_mem_get_data (BIO *bio, void **data)
 {
 	return (int)BIO_get_mem_data (bio, (char**)data);

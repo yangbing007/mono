@@ -69,6 +69,12 @@ void
 mono_btls_ssl_close (MonoBtlsSsl *ptr);
 
 int
+mono_btls_ssl_shutdown (MonoBtlsSsl *ptr);
+
+MONO_API void
+mono_btls_ssl_set_quiet_shutdown (MonoBtlsSsl *ptr, int mode);
+
+int
 mono_btls_ssl_get_error (MonoBtlsSsl *ptr, int ret_code);
 
 int
@@ -76,6 +82,9 @@ mono_btls_ssl_set_verify_param (MonoBtlsSsl *ptr, const MonoBtlsX509VerifyParam 
 
 int
 mono_btls_ssl_set_server_name (MonoBtlsSsl *ptr, const char *name);
+
+const char *
+mono_btls_ssl_get_server_name (MonoBtlsSsl *ptr);
 
 void
 mono_btls_ssl_destroy (MonoBtlsSsl *ptr);

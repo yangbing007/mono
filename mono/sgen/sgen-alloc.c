@@ -1,5 +1,6 @@
-/*
- * sgen-alloc.c: Object allocation routines + managed allocators
+/**
+ * \file
+ * Object allocation routines + managed allocators
  *
  * Author:
  * 	Paolo Molaro (lupus@ximian.com)
@@ -57,17 +58,10 @@ static guint64 stat_bytes_alloced_los = 0;
  * tlab_real_end points to the end of the TLAB.
  */
 
-#ifdef HAVE_KW_THREAD
-#define TLAB_START	(sgen_thread_info->tlab_start)
-#define TLAB_NEXT	(sgen_thread_info->tlab_next)
-#define TLAB_TEMP_END	(sgen_thread_info->tlab_temp_end)
-#define TLAB_REAL_END	(sgen_thread_info->tlab_real_end)
-#else
 #define TLAB_START	(__thread_info__->tlab_start)
 #define TLAB_NEXT	(__thread_info__->tlab_next)
 #define TLAB_TEMP_END	(__thread_info__->tlab_temp_end)
 #define TLAB_REAL_END	(__thread_info__->tlab_real_end)
-#endif
 
 static GCObject*
 alloc_degraded (GCVTable vtable, size_t size, gboolean for_mature)
@@ -217,7 +211,7 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 			/* when running in degraded mode, we continue allocing that way
 			 * for a while, to decrease the number of useless nursery collections.
 			 */
-			if (degraded_mode && degraded_mode < DEFAULT_NURSERY_SIZE)
+			if (degraded_mode && degraded_mode < sgen_nursery_size)
 				return alloc_degraded (vtable, size, FALSE);
 
 			available_in_tlab = (int)(TLAB_REAL_END - TLAB_NEXT);//We'll never have tlabs > 2Gb
@@ -247,7 +241,7 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 						p = (void **)sgen_nursery_alloc (size);
 				}
 				if (!p)
-					return alloc_degraded (vtable, size, FALSE);
+					return alloc_degraded (vtable, size, TRUE);
 
 				zero_tlab_if_necessary (p, size);
 			} else {
@@ -264,7 +258,7 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 						p = (void **)sgen_nursery_alloc_range (tlab_size, size, &alloc_size);
 				}
 				if (!p)
-					return alloc_degraded (vtable, size, FALSE);
+					return alloc_degraded (vtable, size, TRUE);
 
 				/* Allocate a new TLAB from the current nursery fragment */
 				TLAB_START = (char*)p;
@@ -402,8 +396,11 @@ sgen_alloc_obj (GCVTable vtable, size_t size)
 		int current_alloc = InterlockedIncrement (&alloc_count);
 
 		if (verify_before_allocs) {
-			if ((current_alloc % verify_before_allocs) == 0)
+			if ((current_alloc % verify_before_allocs) == 0) {
+				LOCK_GC;
 				sgen_check_whole_heap_stw ();
+				UNLOCK_GC;
+			}
 		}
 		if (collect_before_allocs) {
 			if (((current_alloc % collect_before_allocs) == 0) && nursery_section) {

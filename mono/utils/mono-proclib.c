@@ -1,4 +1,5 @@
-/*
+/**
+ * \file
  * Copyright 2008-2011 Novell Inc
  * Copyright 2011 Xamarin Inc
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
@@ -20,7 +21,9 @@
 #endif
 
 #if defined(_POSIX_VERSION)
+#ifdef HAVE_SYS_ERRNO_H
 #include <sys/errno.h>
+#endif
 #include <sys/param.h>
 #include <errno.h>
 #ifdef HAVE_SYS_TYPES_H
@@ -30,6 +33,9 @@
 #include <sys/sysctl.h>
 #endif
 #include <sys/resource.h>
+#endif
+#if defined(__HAIKU__)
+#include <os/kernel/OS.h>
 #endif
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/proc.h>
@@ -60,12 +66,26 @@
 #define USE_SYSCTL 1
 #endif
 
+#ifdef HAVE_SCHED_GETAFFINITY
+#  ifndef GLIBC_HAS_CPU_COUNT
+static int
+CPU_COUNT(cpu_set_t *set)
+{
+	int i, count = 0;
+
+	for (int i = 0; i < CPU_SETSIZE; i++)
+		if (CPU_ISSET(i, set))
+			count++;
+	return count;
+}
+#  endif
+#endif
+
 /**
  * mono_process_list:
- * @size: a pointer to a location where the size of the returned array is stored
- *
- * Return an array of pid values for the processes currently running on the system.
- * The size of the array is stored in @size.
+ * \param size a pointer to a location where the size of the returned array is stored
+ * \returns an array of pid values for the processes currently running on the system.
+ * The size of the array is stored in \p size.
  */
 gpointer*
 mono_process_list (int *size)
@@ -111,11 +131,11 @@ mono_process_list (int *size)
 		mib [2] = KERN_PROC_ALL;
 		mib [3] = 0;
 
-		res = sysctl (mib, 4, NULL, &data_len, NULL, 0);
+		res = sysctl (mib, 3, NULL, &data_len, NULL, 0);
 		if (res)
 			return NULL;
 		processes = (struct kinfo_proc *) g_malloc (data_len);
-		res = sysctl (mib, 4, processes, &data_len, NULL, 0);
+		res = sysctl (mib, 3, processes, &data_len, NULL, 0);
 		if (res < 0) {
 			g_free (processes);
 			if (errno != ENOMEM)
@@ -140,9 +160,20 @@ mono_process_list (int *size)
 		*size = res;
 	return buf;
 #elif defined(__HAIKU__)
-	/* FIXME: Add back the code from 9185fcc305e43428d0f40f3ee37c8a405d41c9ae */
-	g_assert_not_reached ();
-	return NULL;
+	int32 cookie = 0;
+	int32 i = 0;
+	team_info ti;
+	system_info si;
+
+	get_system_info(&si);
+	void **buf = g_calloc(si.used_teams, sizeof(void*));
+
+	while (get_next_team_info(&cookie, &ti) == B_OK && i < si.used_teams) {
+		buf[i++] = GINT_TO_POINTER (ti.team);
+	}
+	*size = i;
+
+	return buf;
 #else
 	const char *name;
 	void **buf = NULL;
@@ -203,7 +234,7 @@ get_pid_status_item_buf (int pid, const char *item, char *rbuf, int blen, MonoPr
 		while (g_ascii_isspace (*s)) s++;
 		fclose (f);
 		len = strlen (s);
-		strncpy (rbuf, s, MIN (len, blen));
+		memcpy (rbuf, s, MIN (len, blen));
 		rbuf [MIN (len, blen) - 1] = 0;
 		if (error)
 			*error = MONO_PROCESS_ERROR_NONE;
@@ -258,12 +289,11 @@ sysctl_kinfo_proc (gpointer pid, KINFO_PROC* processi)
 
 /**
  * mono_process_get_name:
- * @pid: pid of the process
- * @buf: byte buffer where to store the name of the prcoess
- * @len: size of the buffer @buf
- *
- * Return the name of the process identified by @pid, storing it
- * inside @buf for a maximum of len bytes (including the terminating 0).
+ * \param pid pid of the process
+ * \param buf byte buffer where to store the name of the prcoess
+ * \param len size of the buffer \p buf
+ * \returns the name of the process identified by \p pid, storing it
+ * inside \p buf for a maximum of len bytes (including the terminating 0).
  */
 char*
 mono_process_get_name (gpointer pid, char *buf, int len)
@@ -274,7 +304,7 @@ mono_process_get_name (gpointer pid, char *buf, int len)
 	memset (buf, 0, len);
 
 	if (sysctl_kinfo_proc (pid, &processi))
-		strncpy (buf, processi.kinfo_name_member, len - 1);
+		memcpy (buf, processi.kinfo_name_member, len - 1);
 
 	return buf;
 #else
@@ -570,11 +600,10 @@ get_pid_status_item (int pid, const char *item, MonoProcessError *error, int mul
 
 /**
  * mono_process_get_data:
- * @pid: pid of the process
- * @data: description of data to return
- *
- * Return a data item of a process like user time, memory use etc,
- * according to the @data argumet.
+ * \param pid pid of the process
+ * \param data description of data to return
+ * \returns a data item of a process like user time, memory use etc,
+ * according to the \p data argumet.
  */
 gint64
 mono_process_get_data_with_error (gpointer pid, MonoProcessData data, MonoProcessError *error)
@@ -647,8 +676,7 @@ mono_process_current_pid ()
 
 /**
  * mono_cpu_count:
- *
- * Return the number of processors on the system.
+ * \returns the number of processors on the system.
  */
 #ifndef HOST_WIN32
 int
@@ -825,9 +853,8 @@ get_cpu_times (int cpu_id, gint64 *user, gint64 *systemt, gint64 *irq, gint64 *s
 
 /**
  * mono_cpu_get_data:
- * @cpu_id: processor number or -1 to get a summary of all the processors
- * @data: type of data to retrieve
- *
+ * \param cpu_id processor number or -1 to get a summary of all the processors
+ * \param data type of data to retrieve
  * Get data about a processor on the system, like time spent in user space or idle time.
  */
 gint64

@@ -31,33 +31,50 @@ using System.Threading.Tasks;
 
 namespace System.Net.Security
 {
+	/*
+	 * These two are defined by the referencesource; add them here to make
+	 * it easy to switch between the two implementations.
+	 */
+
+	internal delegate bool RemoteCertValidationCallback (
+		string host,
+		X509Certificate certificate,
+		X509Chain chain,
+		SslPolicyErrors sslPolicyErrors);
+
+	internal delegate X509Certificate LocalCertSelectionCallback (
+		string targetHost,
+		X509CertificateCollection localCertificates,
+		X509Certificate remoteCertificate,
+		string[] acceptableIssuers);
+
 	public class SslStream : AuthenticatedStream
 	{
 		const string EXCEPTION_MESSAGE = "System.Net.Security.SslStream is not supported on the current platform.";
 
 		public SslStream (Stream innerStream)
-			: this (innerStream, false, null, null)
+			: this (innerStream, false)
 		{
 		}
 
 		public SslStream (Stream innerStream, bool leaveInnerStreamOpen)
-			: this (innerStream, leaveInnerStreamOpen, null, null)
-		{
-		}
-
-		public SslStream (Stream innerStream, bool leaveInnerStreamOpen, RemoteCertificateValidationCallback userCertificateValidationCallback)
-			: this (innerStream, leaveInnerStreamOpen, userCertificateValidationCallback, null)
-		{
-		}
-
-		public SslStream (Stream innerStream, bool leaveInnerStreamOpen, RemoteCertificateValidationCallback userCertificateValidationCallback, LocalCertificateSelectionCallback userCertificateSelectionCallback)
 			: base (innerStream, leaveInnerStreamOpen)
 		{
 			throw new PlatformNotSupportedException (EXCEPTION_MESSAGE);
 		}
 
+		public SslStream (Stream innerStream, bool leaveInnerStreamOpen, RemoteCertificateValidationCallback userCertificateValidationCallback)
+			: this (innerStream, leaveInnerStreamOpen)
+		{
+		}
+
+		public SslStream (Stream innerStream, bool leaveInnerStreamOpen, RemoteCertificateValidationCallback userCertificateValidationCallback, LocalCertificateSelectionCallback userCertificateSelectionCallback)
+			: this (innerStream, leaveInnerStreamOpen)
+		{
+		}
+
 		public SslStream (Stream innerStream, bool leaveInnerStreamOpen, RemoteCertificateValidationCallback userCertificateValidationCallback, LocalCertificateSelectionCallback userCertificateSelectionCallback, EncryptionPolicy encryptionPolicy)
-			: this (innerStream, leaveInnerStreamOpen, userCertificateValidationCallback, userCertificateSelectionCallback)
+			: this (innerStream, leaveInnerStreamOpen)
 		{
 		}
 
@@ -131,6 +148,11 @@ namespace System.Net.Security
 		}
 
 		public virtual Task AuthenticateAsServerAsync (X509Certificate serverCertificate, bool clientCertificateRequired, SslProtocols enabledSslProtocols, bool checkCertificateRevocation)
+		{
+			throw new PlatformNotSupportedException (EXCEPTION_MESSAGE);
+		}
+
+		public virtual Task ShutdownAsync ()
 		{
 			throw new PlatformNotSupportedException (EXCEPTION_MESSAGE);
 		}

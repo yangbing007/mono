@@ -1,5 +1,6 @@
-/*
- * jit-info.c: MonoJitInfo functionality
+/**
+ * \file
+ * MonoJitInfo functionality
  *
  * Author:
  *	Dietmar Maurer (dietmar@ximian.com)
@@ -34,9 +35,8 @@
 #include <mono/metadata/assembly.h>
 #include <mono/metadata/exception.h>
 #include <mono/metadata/metadata-internals.h>
-#include <mono/metadata/gc-internals.h>
 #include <mono/metadata/appdomain.h>
-#include <mono/metadata/mono-debug-debugger.h>
+#include <mono/metadata/debug-internals.h>
 #include <mono/metadata/mono-config.h>
 #include <mono/metadata/threads-types.h>
 #include <mono/metadata/runtime.h>
@@ -62,21 +62,7 @@ static MonoJitInfoFindInAot jit_info_find_in_aot_func = NULL;
 static int
 jit_info_table_num_elements (MonoJitInfoTable *table)
 {
-	int i;
-	int num_elements = 0;
-
-	for (i = 0; i < table->num_chunks; ++i) {
-		MonoJitInfoTableChunk *chunk = table->chunks [i];
-		int chunk_num_elements = chunk->num_elements;
-		int j;
-
-		for (j = 0; j < chunk_num_elements; ++j) {
-			if (!IS_JIT_INFO_TOMBSTONE (chunk->data [j]))
-				++num_elements;
-		}
-	}
-
-	return num_elements;
+	return table->num_valid;
 }
 
 static MonoJitInfoTableChunk*
@@ -96,6 +82,7 @@ mono_jit_info_table_new (MonoDomain *domain)
 	table->domain = domain;
 	table->num_chunks = 1;
 	table->chunks [0] = jit_info_table_new_chunk ();
+	table->num_valid = 0;
 
 	return table;
 }
@@ -314,18 +301,18 @@ mono_jit_info_table_find_internal (MonoDomain *domain, char *addr, gboolean try_
 
 /**
  * mono_jit_info_table_find:
- * @domain: Domain that you want to look up
- * @addr: Points to an address with JITed code.
+ * \param domain Domain that you want to look up
+ * \param addr Points to an address with JITed code.
  *
- * Use this function to obtain a `MonoJitInfo*` object that can be used to get
- * some statistics.   You should provide both the @domain on which you will be
- * performing the probe, and an address.   Since application domains can share code
+ * Use this function to obtain a \c MonoJitInfo* object that can be used to get
+ * some statistics. You should provide both the \p domain on which you will be
+ * performing the probe, and an address. Since application domains can share code
  * the same address can be in use by multiple domains at once.
  *
  * This does not return any results for trampolines.
  *
- * Returns: NULL if the address does not belong to JITed code (it might be native
- * code or a trampoline) or a valid pointer to a `MonoJitInfo*`.
+ * \returns NULL if the address does not belong to JITed code (it might be native
+ * code or a trampoline) or a valid pointer to a \c MonoJitInfo* .
  */
 MonoJitInfo*
 mono_jit_info_table_find (MonoDomain *domain, char *addr)
@@ -397,6 +384,7 @@ jit_info_table_realloc (MonoJitInfoTable *old)
 	result = (MonoJitInfoTable *)g_malloc (MONO_SIZEOF_JIT_INFO_TABLE + sizeof (MonoJitInfoTableChunk*) * num_chunks);
 	result->domain = old->domain;
 	result->num_chunks = num_chunks;
+	result->num_valid = old->num_valid;
 
 	for (i = 0; i < num_chunks; ++i)
 		result->chunks [i] = jit_info_table_new_chunk ();
@@ -469,6 +457,7 @@ jit_info_table_copy_and_split_chunk (MonoJitInfoTable *table, MonoJitInfoTableCh
 
 	new_table->domain = table->domain;
 	new_table->num_chunks = table->num_chunks + 1;
+	new_table->num_valid = table->num_valid;
 
 	j = 0;
 	for (i = 0; i < table->num_chunks; ++i) {
@@ -517,6 +506,7 @@ jit_info_table_copy_and_purify_chunk (MonoJitInfoTable *table, MonoJitInfoTableC
 
 	new_table->domain = table->domain;
 	new_table->num_chunks = table->num_chunks;
+	new_table->num_valid = table->num_valid;
 
 	j = 0;
 	for (i = 0; i < table->num_chunks; ++i) {
@@ -651,6 +641,8 @@ jit_info_table_add (MonoDomain *domain, MonoJitInfoTable *volatile *table_ptr, M
 	chunk->last_code_end = (gint8*)chunk->data [chunk->num_elements - 1]->code_start
 		+ chunk->data [chunk->num_elements - 1]->code_size;
 
+	++table->num_valid;
+
 	/* Debugging code, should be removed. */
 	//jit_info_table_check (table);
 }
@@ -732,6 +724,7 @@ jit_info_table_remove (MonoJitInfoTable *table, MonoJitInfo *ji)
 	g_assert (chunk->data [pos] == ji);
 
 	chunk->data [pos] = mono_jit_info_make_tombstone (chunk, ji);
+	--table->num_valid;
 
 	/* Debugging code, should be removed. */
 	//jit_info_table_check (table);
@@ -801,6 +794,8 @@ mono_jit_info_size (MonoJitInfoFlags flags, int num_clauses, int num_holes)
 		size += sizeof (MonoArchEHJitInfo);
 	if (flags & JIT_INFO_HAS_THUNK_INFO)
 		size += sizeof (MonoThunkJitInfo);
+	if (flags & JIT_INFO_HAS_UNWIND_INFO)
+		size += sizeof (MonoUnwindJitInfo);
 	return size;
 }
 
@@ -820,17 +815,19 @@ mono_jit_info_init (MonoJitInfo *ji, MonoMethod *method, guint8 *code, int code_
 		ji->has_arch_eh_info = 1;
 	if (flags & JIT_INFO_HAS_THUNK_INFO)
 		ji->has_thunk_info = 1;
+	if (flags & JIT_INFO_HAS_UNWIND_INFO)
+		ji->has_unwind_info = 1;
 }
 
 /**
  * mono_jit_info_get_code_start:
- * @ji: the JIT information handle
+ * \param ji the JIT information handle
  *
  * Use this function to get the starting address for the method described by
- * the @ji object.  You can use this plus the `mono_jit_info_get_code_size`
+ * the \p ji object.  You can use this plus the \c mono_jit_info_get_code_size
  * to determine the start and end of the native code.
  *
- * Returns: Starting address with the native code.
+ * \returns Starting address with the native code.
  */
 gpointer
 mono_jit_info_get_code_start (MonoJitInfo* ji)
@@ -840,13 +837,13 @@ mono_jit_info_get_code_start (MonoJitInfo* ji)
 
 /**
  * mono_jit_info_get_code_size:
- * @ji: the JIT information handle
+ * \param ji the JIT information handle
  *
  * Use this function to get the code size for the method described by
- * the @ji object.   You can use this plus the `mono_jit_info_get_code_start`
+ * the \p ji object. You can use this plus the \c mono_jit_info_get_code_start
  * to determine the start and end of the native code.
  *
- * Returns: Starting address with the native code.
+ * \returns Starting address with the native code.
  */
 int
 mono_jit_info_get_code_size (MonoJitInfo* ji)
@@ -856,13 +853,13 @@ mono_jit_info_get_code_size (MonoJitInfo* ji)
 
 /**
  * mono_jit_info_get_method:
- * @ji: the JIT information handle
+ * \param ji the JIT information handle
  *
- * Use this function to get the `MonoMethod *` that backs
- * the @ji object.
+ * Use this function to get the \c MonoMethod* that backs
+ * the \p ji object.
  *
- * Returns: The MonoMethod that represents the code tracked
- * by @ji.
+ * \returns The \c MonoMethod that represents the code tracked
+ * by \p ji.
  */
 MonoMethod*
 mono_jit_info_get_method (MonoJitInfo* ji)
@@ -992,6 +989,25 @@ mono_jit_info_get_thunk_info (MonoJitInfo *ji)
 		if (ji->has_arch_eh_info)
 			ptr += sizeof (MonoArchEHJitInfo);
 		return (MonoThunkJitInfo*)ptr;
+	} else {
+		return NULL;
+	}
+}
+
+MonoUnwindJitInfo*
+mono_jit_info_get_unwind_info (MonoJitInfo *ji)
+{
+	if (ji->has_unwind_info) {
+		char *ptr = (char*)&ji->clauses [ji->num_clauses];
+		if (ji->has_generic_jit_info)
+			ptr += sizeof (MonoGenericJitInfo);
+		if (ji->has_try_block_holes)
+			ptr += try_block_hole_table_size (ji);
+		if (ji->has_arch_eh_info)
+			ptr += sizeof (MonoArchEHJitInfo);
+		if (ji->has_thunk_info)
+			ptr += sizeof (MonoThunkJitInfo);
+		return (MonoUnwindJitInfo*)ptr;
 	} else {
 		return NULL;
 	}

@@ -23,7 +23,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 using System;
 using System.IO;
 using System.Text;
@@ -48,20 +48,27 @@ namespace Mono.Btls
 			}
 		}
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+
+		[DllImport (BTLS_DYLIB)]
+		extern static IntPtr mono_btls_key_new ();
+
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_key_free (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_key_up_ref (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_key_get_bytes (IntPtr handle, out IntPtr data, out int size, int include_private_bits);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_key_get_bits (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_key_is_rsa (IntPtr handle);
+
+		[DllImport (BTLS_DYLIB)]
+		extern static int mono_btls_key_assign_rsa_private_key (IntPtr handle, byte[] der, int der_length);
 
 		new internal BoringKeyHandle Handle {
 			get { return (BoringKeyHandle)base.Handle; }
@@ -98,6 +105,18 @@ namespace Mono.Btls
 			var copy = mono_btls_key_up_ref (Handle.DangerousGetHandle ());
 			CheckError (copy != IntPtr.Zero);
 			return new MonoBtlsKey (new BoringKeyHandle (copy));
+		}
+
+		public static MonoBtlsKey CreateFromRSAPrivateKey (System.Security.Cryptography.RSA privateKey)
+		{
+			var keyData = Mono.Security.Cryptography.PKCS8.PrivateKeyInfo.Encode (privateKey);
+			var key = new MonoBtlsKey (new BoringKeyHandle (mono_btls_key_new ()));
+
+			var ret = mono_btls_key_assign_rsa_private_key (key.Handle.DangerousGetHandle (), keyData, keyData.Length);
+			if (ret == 0)
+				throw new MonoBtlsException ("Assigning private key failed.");
+
+			return key;
 		}
 	}
 }

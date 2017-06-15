@@ -1,5 +1,6 @@
-/*
- * decompose.c: Functions to decompose complex IR instructions into simpler ones.
+/**
+ * \file
+ * Functions to decompose complex IR instructions into simpler ones.
  *
  * Author:
  *   Zoltan Varga (vargaz@gmail.com)
@@ -15,13 +16,9 @@
 
 #include <mono/metadata/gc-internals.h>
 #include <mono/metadata/abi-details.h>
+#include <mono/utils/mono-compiler.h>
 
 #ifndef DISABLE_JIT
-
-/* FIXME: This conflicts with the definition in mini.c, so it cannot be moved to mini.h */
-MONO_API MonoInst* mono_emit_native_call (MonoCompile *cfg, gconstpointer func, MonoMethodSignature *sig, MonoInst **args);
-void mini_emit_stobj (MonoCompile *cfg, MonoInst *dest, MonoInst *src, MonoClass *klass, gboolean native);
-void mini_emit_initobj (MonoCompile *cfg, MonoInst *dest, const guchar *ip, MonoClass *klass);
 
 /*
  * Decompose complex long opcodes on 64 bit machines.
@@ -1230,8 +1227,8 @@ mono_decompose_vtype_opts (MonoCompile *cfg)
 
 					EMIT_NEW_VARLOADA ((cfg), (src), src_var, src_var->inst_vtype);
 					EMIT_NEW_VARLOADA ((cfg), (dest), dest_var, dest_var->inst_vtype);
+					mini_emit_memory_copy (cfg, dest, src, src_var->klass, src_var->backend.is_pinvoke, 0);
 
-					mini_emit_stobj (cfg, dest, src, src_var->klass, src_var->backend.is_pinvoke);
 					break;
 				}
 				case OP_VZERO:
@@ -1276,7 +1273,7 @@ mono_decompose_vtype_opts (MonoCompile *cfg)
 
 					dreg = alloc_preg (cfg);
 					EMIT_NEW_BIALU_IMM (cfg, dest, OP_ADD_IMM, dreg, ins->inst_destbasereg, ins->inst_offset);
-					mini_emit_stobj (cfg, dest, src, src_var->klass, src_var->backend.is_pinvoke);
+					mini_emit_memory_copy (cfg, dest, src, src_var->klass, src_var->backend.is_pinvoke, 0);
 					break;
 				}
 				case OP_LOADV_MEMBASE: {
@@ -1293,7 +1290,7 @@ mono_decompose_vtype_opts (MonoCompile *cfg)
 					dreg = alloc_preg (cfg);
 					EMIT_NEW_BIALU_IMM (cfg, src, OP_ADD_IMM, dreg, ins->inst_basereg, ins->inst_offset);
 					EMIT_NEW_VARLOADA (cfg, dest, dest_var, dest_var->inst_vtype);
-					mini_emit_stobj (cfg, dest, src, dest_var->klass, dest_var->backend.is_pinvoke);
+					mini_emit_memory_copy (cfg, dest, src, dest_var->klass, dest_var->backend.is_pinvoke, 0);
 					break;
 				}
 				case OP_OUTARG_VT: {
@@ -1511,10 +1508,13 @@ mono_decompose_array_access_opts (MonoCompile *cfg)
 					break;
 				case OP_BOUNDS_CHECK:
 					MONO_EMIT_NULL_CHECK (cfg, ins->sreg1);
-					if (COMPILE_LLVM (cfg))
-						MONO_EMIT_DEFAULT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, ins->sreg2, ins->flags & MONO_INST_FAULT);
-					else
+					if (COMPILE_LLVM (cfg)) {
+						int index2_reg = alloc_preg (cfg);
+						MONO_EMIT_NEW_UNALU (cfg, OP_SEXT_I4, index2_reg, ins->sreg2);
+						MONO_EMIT_DEFAULT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, index2_reg, ins->flags & MONO_INST_FAULT);
+					} else {
 						MONO_ARCH_EMIT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, ins->sreg2);
+					}
 					break;
 				case OP_NEWARR:
 					if (cfg->opt & MONO_OPT_SHARED) {
@@ -1968,4 +1968,8 @@ mono_local_emulate_ops (MonoCompile *cfg)
 	}
 }
 
-#endif /* DISABLE_JIT */
+#else /* !DISABLE_JIT */
+
+MONO_EMPTY_SOURCE_FILE (decompose);
+
+#endif /* !DISABLE_JIT */

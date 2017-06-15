@@ -23,7 +23,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 #if MONO_SECURITY_ALIAS
 extern alias MonoSecurity;
 #endif
@@ -45,12 +45,14 @@ namespace Mono.Btls
 	static class MonoBtlsX509StoreManager
 	{
 		static bool initialized;
+#if !MONODROID
 		static string machineTrustedRootPath;
 		static string machineIntermediateCAPath;
 		static string machineUntrustedPath;
 		static string userTrustedRootPath;
 		static string userIntermediateCAPath;
 		static string userUntrustedPath;
+#endif
 
 		static void Initialize ()
 		{
@@ -68,22 +70,22 @@ namespace Mono.Btls
 
 		static void DoInitialize ()
 		{
-#if !ANDROID
+#if !MONODROID
 			var userPath = MX.X509StoreManager.NewCurrentUserPath;
 			userTrustedRootPath = Path.Combine (userPath, MX.X509Stores.Names.TrustedRoot);
 			userIntermediateCAPath = Path.Combine (userPath, MX.X509Stores.Names.IntermediateCA);
 			userUntrustedPath = Path.Combine (userPath, MX.X509Stores.Names.Untrusted);
 
 			var machinePath = MX.X509StoreManager.NewLocalMachinePath;
-			machineTrustedRootPath = Path.Combine (userPath, MX.X509Stores.Names.TrustedRoot);
-			machineIntermediateCAPath = Path.Combine (userPath, MX.X509Stores.Names.IntermediateCA);
-			machineUntrustedPath = Path.Combine (userPath, MX.X509Stores.Names.Untrusted);
+			machineTrustedRootPath = Path.Combine (machinePath, MX.X509Stores.Names.TrustedRoot);
+			machineIntermediateCAPath = Path.Combine (machinePath, MX.X509Stores.Names.IntermediateCA);
+			machineUntrustedPath = Path.Combine (machinePath, MX.X509Stores.Names.Untrusted);
 #endif
 		}
 
 		public static bool HasStore (MonoBtlsX509StoreType type)
 		{
-#if ANDROID
+#if MONODROID
 			return false;
 #else
 			var path = GetStorePath (type);
@@ -93,7 +95,7 @@ namespace Mono.Btls
 
 		public static string GetStorePath (MonoBtlsX509StoreType type)
 		{
-#if ANDROID
+#if MONODROID
 			throw new NotSupportedException ();
 #else
 			Initialize ();

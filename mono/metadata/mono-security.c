@@ -1,5 +1,6 @@
-/*
- * security.c:  Security internal calls
+/**
+ * \file
+ * Security internal calls
  *
  * Author:
  *	Sebastien Pouliot  <sebastien@ximian.com>
@@ -12,14 +13,13 @@
 #include <config.h>
 #endif
 
-#include <mono/metadata/assembly.h>
+#include <mono/metadata/assembly-internals.h>
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/image.h>
 #include <mono/metadata/exception.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/metadata-internals.h>
 #include <mono/metadata/security.h>
-#include <mono/io-layer/io-layer.h>
 #include <mono/utils/strenc.h>
 
 #ifndef HOST_WIN32
@@ -77,6 +77,8 @@ GetTokenName (uid_t uid)
 {
 	gchar *uname = NULL;
 
+#ifdef HAVE_PWD_H
+
 #ifdef HAVE_GETPWUID_R
 	struct passwd pwd;
 	size_t fbufsize;
@@ -109,8 +111,12 @@ GetTokenName (uid_t uid)
 	g_free (fbuf);
 #endif
 
+#endif /* HAVE_PWD_H */
+
 	return uname;
 }
+
+#ifdef HAVE_GRP_H
 
 static gboolean
 IsMemberInList (uid_t user, struct group *g) 
@@ -138,9 +144,15 @@ IsMemberInList (uid_t user, struct group *g)
 	return result;
 }
 
+#endif /* HAVE_GRP_H */
+
 static gboolean
 IsDefaultGroup (uid_t user, gid_t group)
 {
+	gboolean result = FALSE;
+
+#ifdef HAVE_PWD_H
+
 #ifdef HAVE_GETPWUID_R
 	struct passwd pwd;
 	size_t fbufsize;
@@ -148,7 +160,6 @@ IsDefaultGroup (uid_t user, gid_t group)
 	gint32 retval;
 #endif
 	struct passwd *p = NULL;
-	gboolean result;
 
 #ifdef HAVE_GETPWUID_R
 #ifdef _SC_GETPW_R_SIZE_MAX
@@ -174,8 +185,12 @@ IsDefaultGroup (uid_t user, gid_t group)
 	g_free (fbuf);
 #endif
 
+#endif /* HAVE_PWD_H */
+
 	return result;
 }
+
+#ifdef HAVE_GRP_H
 
 static gboolean
 IsMemberOf (gid_t user, struct group *g) 
@@ -190,6 +205,9 @@ IsMemberOf (gid_t user, struct group *g)
 	/* is the user in the group list */
 	return IsMemberInList (user, g);
 }
+
+#endif /* HAVE_GRP_H */
+
 #endif /* !HOST_WIN32 */
 
 /* ICALLS */
@@ -198,9 +216,16 @@ IsMemberOf (gid_t user, struct group *g)
 
 #ifndef HOST_WIN32
 gpointer
-ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (void)
+mono_security_principal_windows_identity_get_current_token ()
 {
 	return GINT_TO_POINTER (geteuid ());
+}
+
+gpointer
+ves_icall_System_Security_Principal_WindowsIdentity_GetCurrentToken (MonoError *error)
+{
+	error_init (error);
+	return mono_security_principal_windows_identity_get_current_token ();
 }
 
 static gint32
@@ -219,48 +244,51 @@ internal_get_token_name (gpointer token, gunichar2 ** uniname)
 	return size;
 }
 
-MonoString*
-ves_icall_System_Security_Principal_WindowsIdentity_GetTokenName (gpointer token)
+MonoStringHandle
+ves_icall_System_Security_Principal_WindowsIdentity_GetTokenName (gpointer token, MonoError *error)
 {
-	MonoError error;
-	MonoString *result = NULL;
+	MonoStringHandle result;
 	gunichar2 *uniname = NULL;
 	gint32 size = 0;
 
-	mono_error_init (&error);
+	error_init (error);
 
 	size = internal_get_token_name (token, &uniname);
 
 	if (size > 0) {
-		result = mono_string_new_utf16_checked (mono_domain_get (), uniname, size, &error);
+		result = mono_string_new_utf16_handle (mono_domain_get (), uniname, size, error);
 	}
 	else
-		result = mono_string_new (mono_domain_get (), "");
+		result = mono_string_new_handle (mono_domain_get (), "", error);
 
 	if (uniname)
 		g_free (uniname);
 
-	mono_error_set_pending_exception (&error);
 	return result;
 }
 #endif  /* !HOST_WIN32 */
 
 #ifndef HOST_WIN32
 gpointer
-ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoString *username)
+ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoStringHandle username, MonoError *error)
 {
+	gpointer token = (gpointer)-2;
+
+	error_init (error);
+#ifdef HAVE_PWD_H
+
 #ifdef HAVE_GETPWNAM_R
 	struct passwd pwd;
 	size_t fbufsize;
 	gchar *fbuf;
 	gint32 retval;
 #endif
-	gpointer token = (gpointer) -2;
 	struct passwd *p;
 	gchar *utf8_name;
 	gboolean result;
 
-	utf8_name = mono_unicode_to_external (mono_string_chars (username));
+	utf8_name = mono_string_handle_to_utf8 (username, error);
+	return_val_if_nok (error, NULL);
 
 #ifdef HAVE_GETPWNAM_R
 #ifdef _SC_GETPW_R_SIZE_MAX
@@ -286,6 +314,8 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoString *us
 	g_free (fbuf);
 #endif
 	g_free (utf8_name);
+
+#endif /* HAVE_PWD_H */
 
 	return token;
 }
@@ -337,15 +367,41 @@ ves_icall_System_Security_Principal_WindowsImpersonationContext_DuplicateToken (
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_SetCurrentToken (gpointer token)
 {
-	/* Posix version implemented in /mono/mono/io-layer/security.c */
+#ifdef HOST_WIN32
 	return (ImpersonateLoggedOnUser (token) != 0);
+#else
+	uid_t itoken = (uid_t) GPOINTER_TO_INT (token);
+#ifdef HAVE_SETRESUID
+	if (setresuid (-1, itoken, getuid ()) < 0)
+		return FALSE;
+#endif
+	return geteuid () == itoken;
+#endif
 }
 
 gboolean
 ves_icall_System_Security_Principal_WindowsImpersonationContext_RevertToSelf (void)
 {
-	/* Posix version implemented in /mono/mono/io-layer/security.c */
+#ifdef HOST_WIN32
 	return (RevertToSelf () != 0);
+#else
+#ifdef HAVE_GETRESUID
+	uid_t ruid, euid;
+#endif
+	uid_t suid = -1;
+
+#ifdef HAVE_GETRESUID
+	if (getresuid (&ruid, &euid, &suid) < 0)
+		return FALSE;
+#endif
+#ifdef HAVE_SETRESUID
+	if (setresuid (-1, suid, -1) < 0)
+		return FALSE;
+#else
+	return TRUE;
+#endif
+	return geteuid () == suid;
+#endif
 }
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
@@ -356,6 +412,8 @@ gboolean
 ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupId (gpointer user, gpointer group)
 {
 	gboolean result = FALSE;
+
+#ifdef HAVE_GRP_H
 
 #ifdef HAVE_GETGRGID_R
 	struct group grp;
@@ -388,6 +446,8 @@ ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupId (gpointer
 	g_free (fbuf);
 #endif
 
+#endif /* HAVE_GRP_H */
+
 	return result;
 }
 
@@ -395,6 +455,9 @@ gboolean
 ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupName (gpointer user, MonoString *group)
 {
 	gboolean result = FALSE;
+
+#ifdef HAVE_GRP_H
+
 	gchar *utf8_groupname;
 
 	utf8_groupname = mono_unicode_to_external (mono_string_chars (group));
@@ -427,6 +490,8 @@ ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupName (gpoint
 #endif
 		g_free (utf8_groupname);
 	}
+
+#endif /* HAVE_GRP_H */
 
 	return result;
 }
@@ -524,10 +589,14 @@ ves_icall_Mono_Security_Cryptography_KeyPairPersistence_ProtectUser (MonoString 
  * Note: Neither the structure nor the signature is verified by this function.
  */
 MonoBoolean
-ves_icall_System_Security_Policy_Evidence_IsAuthenticodePresent (MonoReflectionAssembly *refass)
+ves_icall_System_Security_Policy_Evidence_IsAuthenticodePresent (MonoReflectionAssemblyHandle refass, MonoError *error)
 {
-	if (refass && refass->assembly && refass->assembly->image) {
-		return (MonoBoolean)mono_image_has_authenticode_entry (refass->assembly->image);
+	error_init (error);
+	if (MONO_HANDLE_IS_NULL (refass))
+		return FALSE;
+	MonoAssembly *assembly = MONO_HANDLE_GETVAL (refass, assembly);
+	if (assembly && assembly->image) {
+		return (MonoBoolean)mono_image_has_authenticode_entry (assembly->image);
 	}
 	return FALSE;
 }
@@ -558,12 +627,12 @@ void invoke_protected_memory_method (MonoArray *data, MonoObject *scope, gboolea
 	MonoMethod *method;
 	void *params [2];
 
-	mono_error_init (error);
+	error_init (error);
 	
 	if (system_security_assembly == NULL) {
 		system_security_assembly = mono_image_loaded ("System.Security");
 		if (!system_security_assembly) {
-			MonoAssembly *sa = mono_assembly_open ("System.Security.dll", NULL);
+			MonoAssembly *sa = mono_assembly_open_predicate ("System.Security.dll", FALSE, FALSE, NULL, NULL, NULL);
 			if (!sa)
 				g_assert_not_reached ();
 			system_security_assembly = mono_assembly_get_image (sa);

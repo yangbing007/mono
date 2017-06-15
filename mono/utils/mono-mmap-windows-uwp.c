@@ -1,15 +1,17 @@
-/*
- * mono-dl-windows-uwp.c: UWP dl support for Mono.
+/**
+ * \file
+ * UWP dl support for Mono.
  *
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
 */
 #include <config.h>
 #include <glib.h>
+#include "mono/utils/mono-compiler.h"
 
 #if G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT)
-#include <Windows.h>
-#include <mono/utils/mono-mmap-windows.h>
+#include <windows.h>
+#include <mono/utils/mono-mmap-windows-internals.h>
 
 void*
 mono_file_map (size_t length, int flags, int fd, guint64 offset, void **ret_handle)
@@ -50,8 +52,5 @@ mono_file_unmap (void *addr, void *handle)
 
 #else /* G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT) */
 
-#ifdef _MSC_VER
-// Quiet Visual Studio linker warning, LNK4221, in cases when this source file intentional ends up empty.
-void __mono_win32_mono_mmap_windows_uwp_quiet_lnk4221(void) {}
-#endif
+MONO_EMPTY_SOURCE_FILE (mono_mmap_windows_uwp);
 #endif /* G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT) */

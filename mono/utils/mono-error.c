@@ -1,5 +1,6 @@
-/*
- * mono-error.c: Error handling code
+/**
+ * \file
+ * Error handling code
  *
  * Authors:
  *	Rodrigo Kumpera    (rkumpera@novell.com)
@@ -101,10 +102,9 @@ mono_error_init_flags (MonoError *oerror, unsigned short flags)
 
 /**
  * mono_error_init:
- * @error: Pointer to MonoError struct to initialize
- *
- * Any function which takes a MonoError for purposes of reporting an error
- * is required to call either this or mono_error_init_flags on entry.
+ * \param error Pointer to \c MonoError struct to initialize
+ * Any function which takes a \c MonoError for purposes of reporting an error
+ * is required to call either this or \c mono_error_init_flags on entry.
  */
 void
 mono_error_init (MonoError *error)
@@ -481,6 +481,16 @@ mono_error_set_exception_instance (MonoError *oerror, MonoException *exc)
 }
 
 void
+mono_error_set_exception_handle (MonoError *oerror, MonoExceptionHandle exc)
+{
+	MonoErrorInternal *error = (MonoErrorInternal*)oerror;
+
+	mono_error_prepare (error);
+	error->error_code = MONO_ERROR_EXCEPTION_INSTANCE;
+	error->exn.instance_handle = mono_gchandle_from_handle (MONO_HANDLE_CAST(MonoObject, exc), FALSE);
+}
+
+void
 mono_error_set_out_of_memory (MonoError *oerror, const char *msg_format, ...)
 {
 	MonoErrorInternal *error = (MonoErrorInternal*)oerror;
@@ -531,20 +541,30 @@ mono_error_set_not_verifiable (MonoError *oerror, MonoMethod *method, const char
 }
 
 
+/* Used by mono_error_prepare_exception - it sets its own error on mono_string_new_checked failure. */
+static MonoString*
+string_new_cleanup (MonoDomain *domain, const char *text)
+{
+	MonoError ignored_err;
+	MonoString *result = mono_string_new_checked (domain, text, &ignored_err);
+	mono_error_cleanup (&ignored_err);
+	return result;
+}
+
 static MonoString*
 get_type_name_as_mono_string (MonoErrorInternal *error, MonoDomain *domain, MonoError *error_out)
 {
 	MonoString* res = NULL;
 
 	if (error->type_name) {
-		res = mono_string_new (domain, error->type_name);
+		res = string_new_cleanup (domain, error->type_name);
 		
 	} else {
 		MonoClass *klass = get_class (error);
 		if (klass) {
 			char *name = mono_type_full_name (&klass->byval_arg);
 			if (name) {
-				res = mono_string_new (domain, name);
+				res = string_new_cleanup (domain, name);
 				g_free (name);
 			}
 		}
@@ -557,7 +577,7 @@ get_type_name_as_mono_string (MonoErrorInternal *error, MonoDomain *domain, Mono
 static void
 set_message_on_exception (MonoException *exception, MonoErrorInternal *error, MonoError *error_out)
 {
-	MonoString *msg = mono_string_new (mono_domain_get (), error->full_message);
+	MonoString *msg = string_new_cleanup (mono_domain_get (), error->full_message);
 	if (msg)
 		MONO_OBJECT_SETREF (exception, message, msg);
 	else
@@ -574,7 +594,7 @@ mono_error_prepare_exception (MonoError *oerror, MonoError *error_out)
 	MonoString *assembly_name = NULL, *type_name = NULL, *method_name = NULL, *field_name = NULL, *msg = NULL;
 	MonoDomain *domain = mono_domain_get ();
 
-	mono_error_init (error_out);
+	error_init (error_out);
 
 	switch (error->error_code) {
 	case MONO_ERROR_NONE:
@@ -586,7 +606,7 @@ mono_error_prepare_exception (MonoError *oerror, MonoError *error_out)
 			if (!mono_error_ok (error_out))
 				break;
 
-			method_name = mono_string_new (domain, error->member_name);
+			method_name = string_new_cleanup (domain, error->member_name);
 			if (!method_name) {
 				mono_error_set_out_of_memory (error_out, "Could not allocate method name");
 				break;
@@ -606,7 +626,7 @@ mono_error_prepare_exception (MonoError *oerror, MonoError *error_out)
 			if (!mono_error_ok (error_out))
 				break;
 			
-			field_name = mono_string_new (domain, error->member_name);
+			field_name = string_new_cleanup (domain, error->member_name);
 			if (!field_name) {
 				mono_error_set_out_of_memory (error_out, "Could not allocate field name");
 				break;
@@ -627,11 +647,13 @@ mono_error_prepare_exception (MonoError *oerror, MonoError *error_out)
 				break;
 
 			if (error->assembly_name) {
-				assembly_name = mono_string_new (domain, error->assembly_name);
+				assembly_name = string_new_cleanup (domain, error->assembly_name);
 				if (!assembly_name) {
 					mono_error_set_out_of_memory (error_out, "Could not allocate assembly name");
 					break;
 				}
+			} else {
+				assembly_name = mono_string_empty (domain);
 			}
 
 			exception = mono_exception_from_name_two_strings_checked (mono_get_corlib (), "System", "TypeLoadException", type_name, assembly_name, error_out);
@@ -645,14 +667,14 @@ mono_error_prepare_exception (MonoError *oerror, MonoError *error_out)
 	case MONO_ERROR_FILE_NOT_FOUND:
 	case MONO_ERROR_BAD_IMAGE:
 		if (error->assembly_name) {
-			msg = mono_string_new (domain, error->full_message);
+			msg = string_new_cleanup (domain, error->full_message);
 			if (!msg) {
 				mono_error_set_out_of_memory (error_out, "Could not allocate message");
 				break;
 			}
 
 			if (error->assembly_name) {
-				assembly_name = mono_string_new (domain, error->assembly_name);
+				assembly_name = string_new_cleanup (domain, error->assembly_name);
 				if (!assembly_name) {
 					mono_error_set_out_of_memory (error_out, "Could not allocate assembly name");
 					break;
@@ -770,19 +792,17 @@ void
 mono_error_move (MonoError *dest, MonoError *src)
 {
 	memcpy (dest, src, sizeof (MonoErrorInternal));
-	mono_error_init (src);
+	error_init (src);
 }
 
 /**
  * mono_error_box:
- * @ierror: The input error that will be boxed.
- * @image: The mempool of this image will hold the boxed error.
- *
- * Creates a new boxed error in the given mempool from MonoError.
- * It does not alter ierror, so you still have to clean it up with
- * mono_error_cleanup or mono_error_convert_to_exception or another such function.
- *
- * Returns the boxed error, or NULL if the mempool could not allocate.
+ * \param ierror The input error that will be boxed.
+ * \param image The mempool of this image will hold the boxed error.
+ * Creates a new boxed error in the given mempool from \c MonoError.
+ * It does not alter \p ierror, so you still have to clean it up with
+ * \c mono_error_cleanup or \c mono_error_convert_to_exception or another such function.
+ * \returns the boxed error, or NULL if the mempool could not allocate.
  */
 MonoErrorBoxed*
 mono_error_box (const MonoError *ierror, MonoImage *image)
@@ -823,16 +843,14 @@ mono_error_box (const MonoError *ierror, MonoImage *image)
 
 /**
  * mono_error_set_from_boxed:
- * @oerror: The error that will be set to the contents of the box.
- * @box: A mempool-allocated error.
- *
+ * \param oerror The error that will be set to the contents of the box.
+ * \param box A mempool-allocated error.
  * Sets the error condition in the oerror from the contents of the
  * given boxed error.  Does not alter the boxed error, so it can be
- * used in a future call to mono_error_set_from_boxed as needed.  The
- * oerror should've been previously initialized with mono_error_init,
+ * used in a future call to \c mono_error_set_from_boxed as needed.  The
+ * \p oerror should've been previously initialized with \c mono_error_init,
  * as usual.
- *
- * Returns TRUE on success or FALSE on failure.
+ * \returns TRUE on success or FALSE on failure.
  */
 gboolean
 mono_error_set_from_boxed (MonoError *oerror, const MonoErrorBoxed *box)

@@ -66,16 +66,20 @@ namespace System.Diagnostics {
         ProcessModuleCollection modules;
 #endif // !FEATURE_PAL        
 
+#if !MONO
         bool haveMainWindow;
         IntPtr mainWindowHandle;  // no need to use SafeHandle for window        
         string mainWindowTitle;
+#endif
         
         bool haveWorkingSetLimits;
         IntPtr minWorkingSet;
         IntPtr maxWorkingSet;
-        
+
+#if !MONO
         bool haveProcessorAffinity;
         IntPtr processorAffinity;
+#endif
 
         bool havePriorityClass;
         ProcessPriorityClass priorityClass;
@@ -1614,6 +1618,7 @@ namespace System.Diagnostics {
             
             return new Process(machineName, ProcessManager.IsRemoteMachine(machineName), processId, null);
         }
+#endif
 
         /// <devdoc>
         ///    <para>
@@ -1641,6 +1646,7 @@ namespace System.Diagnostics {
             return GetProcessesByName(processName, ".");
         }
 
+#if !MONO
         /// <devdoc>
         ///    <para>
         ///       Creates an array of <see cref='System.Diagnostics.Process'/> components that are associated with process resources on a
@@ -1666,6 +1672,7 @@ namespace System.Diagnostics {
             list.CopyTo(temp, 0);
             return temp;
         }
+#endif
 
         /// <devdoc>
         ///    <para>
@@ -1679,6 +1686,7 @@ namespace System.Diagnostics {
             return GetProcesses(".");
         }
 
+#if !MONO
         /// <devdoc>
         ///    <para>
         ///       Creates a new <see cref='System.Diagnostics.Process'/>
@@ -1870,12 +1878,18 @@ namespace System.Diagnostics {
             threads = null;
             modules = null;
 #endif // !FEATURE_PAL            
+#if !MONO
             mainWindowTitle = null;
+#endif
             exited = false;
             signaled = false;
+#if !MONO
             haveMainWindow = false;
+#endif
             haveWorkingSetLimits = false;
+#if !MONO
             haveProcessorAffinity = false;
+#endif
             havePriorityClass = false;
             haveExitTime = false;
 #if !MONO
@@ -2555,11 +2569,6 @@ namespace System.Diagnostics {
                         signaled = false;
                     }
                 }
-            }
-            finally {
-                if( processWaitHandle != null) {
-                    processWaitHandle.Close();
-                }
 
                 // If we have a hard timeout, we cannot wait for the streams
                 if( output != null && milliseconds == -1) {
@@ -2568,6 +2577,11 @@ namespace System.Diagnostics {
 
                 if( error != null && milliseconds == -1) {
                     error.WaitUtilEOF();
+                }
+            }
+            finally {
+                if( processWaitHandle != null) {
+                    processWaitHandle.Close();
                 }
 
                 ReleaseProcessHandle(handle);

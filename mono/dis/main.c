@@ -29,8 +29,9 @@
 #include <mono/metadata/class-internals.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/loader.h>
-#include <mono/metadata/assembly.h>
+#include <mono/metadata/assembly-internals.h>
 #include <mono/metadata/appdomain.h>
+#include <mono/metadata/w32handle.h>
 #include <mono/utils/bsearch.h>
 #include <mono/utils/mono-counters.h>
 
@@ -1843,22 +1844,25 @@ load_filter (const char* filename)
 
 
 static gboolean
-try_load_from (MonoAssembly **assembly, const gchar *path1, const gchar *path2,
-					const gchar *path3, const gchar *path4, gboolean refonly)
+try_load_from (MonoAssembly **assembly,
+	       const gchar *path1, const gchar *path2,
+	       const gchar *path3, const gchar *path4, gboolean refonly,
+	       MonoAssemblyCandidatePredicate predicate, gpointer user_data)
 {
 	gchar *fullpath;
 
 	*assembly = NULL;
 	fullpath = g_build_filename (path1, path2, path3, path4, NULL);
 	if (g_file_test (fullpath, G_FILE_TEST_IS_REGULAR))
-		*assembly = mono_assembly_open_full (fullpath, NULL, refonly);
+		*assembly = mono_assembly_open_predicate (fullpath, refonly, FALSE, predicate, user_data, NULL);
 
 	g_free (fullpath);
 	return (*assembly != NULL);
 }
 
 static MonoAssembly *
-real_load (gchar **search_path, const gchar *culture, const gchar *name, gboolean refonly)
+real_load (gchar **search_path, const gchar *culture, const gchar *name, gboolean refonly,
+	   MonoAssemblyCandidatePredicate predicate, gpointer user_data)
 {
 	MonoAssembly *result = NULL;
 	gchar **path;
@@ -1882,22 +1886,22 @@ real_load (gchar **search_path, const gchar *culture, const gchar *name, gboolea
 		/* See test cases in bug #58992 and bug #57710 */
 		/* 1st try: [culture]/[name].dll (culture may be empty) */
 		strcpy (filename + len - 4, ".dll");
-		if (try_load_from (&result, *path, local_culture, "", filename, refonly))
+		if (try_load_from (&result, *path, local_culture, "", filename, refonly, predicate, user_data))
 			break;
 
 		/* 2nd try: [culture]/[name].exe (culture may be empty) */
 		strcpy (filename + len - 4, ".exe");
-		if (try_load_from (&result, *path, local_culture, "", filename, refonly))
+		if (try_load_from (&result, *path, local_culture, "", filename, refonly, predicate, user_data))
 			break;
 
 		/* 3rd try: [culture]/[name]/[name].dll (culture may be empty) */
 		strcpy (filename + len - 4, ".dll");
-		if (try_load_from (&result, *path, local_culture, name, filename, refonly))
+		if (try_load_from (&result, *path, local_culture, name, filename, refonly, predicate, user_data))
 			break;
 
 		/* 4th try: [culture]/[name]/[name].exe (culture may be empty) */
 		strcpy (filename + len - 4, ".exe");
-		if (try_load_from (&result, *path, local_culture, name, filename, refonly))
+		if (try_load_from (&result, *path, local_culture, name, filename, refonly, predicate, user_data))
 			break;
 	}
 
@@ -1917,7 +1921,7 @@ monodis_preload (MonoAssemblyName *aname,
 	gboolean refonly = GPOINTER_TO_UINT (user_data);
 
 	if (assemblies_path && assemblies_path [0] != NULL) {
-		result = real_load (assemblies_path, aname->culture, aname->name, refonly);
+		result = real_load (assemblies_path, aname->culture, aname->name, refonly, NULL, NULL);
 	}
 
 	return result;
@@ -1947,8 +1951,10 @@ monodis_assembly_search_hook (MonoAssemblyName *aname, gpointer user_data)
 static void
 usage (void)
 {
-	GString *args = g_string_new ("[--output=filename] [--filter=filename] [--help] [--mscorlib]\n");
+	GString *args = g_string_new ("[--output=filename] [--filter=filename]\n");
 	int i;
+
+	g_string_append (args, "[--help] [--mscorlib] [--show-tokens] [--show-method-tokens]\n");
 	
 	for (i = 0; table_list [i].name != NULL; i++){
 		g_string_append (args, "[");
@@ -2026,6 +2032,7 @@ main (int argc, char *argv [])
 
 	CHECKED_MONO_INIT ();
 	mono_counters_init ();
+	mono_tls_init_runtime_keys ();
 	memset (&ticallbacks, 0, sizeof (ticallbacks));
 	ticallbacks.thread_state_init = thread_state_init;
 #ifndef HOST_WIN32

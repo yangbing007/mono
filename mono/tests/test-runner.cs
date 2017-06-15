@@ -18,7 +18,7 @@ using System.Xml;
 using System.Text;
 using System.Text.RegularExpressions;
 
-#if !MOBILE_STATIC
+#if !FULL_AOT_DESKTOP && !MOBILE
 using Mono.Unix.Native;
 #endif
 
@@ -31,10 +31,12 @@ public class TestRunner
 	const string TEST_TIME_FORMAT = "mm\\:ss\\.fff";
 	const string ENV_TIMEOUT = "TEST_DRIVER_TIMEOUT_SEC";
 	const string MONO_PATH = "MONO_PATH";
+	const string MONO_GAC_PREFIX = "MONO_GAC_PREFIX";
 
 	class ProcessData {
 		public string test;
 		public StringBuilder stdout, stderr;
+		public object stdoutLock = new object (), stderrLock = new object ();
 		public string stdoutName, stderrName;
 	}
 
@@ -55,10 +57,9 @@ public class TestRunner
 		string runtime = "mono";
 		string config = null;
 		string mono_path = null;
+		string runtime_args = null;
+		string mono_gac_prefix = null;
 		var opt_sets = new List<string> ();
-
-		string aot_run_flags = null;
-		string aot_build_flags = null;
 
 		// Process options
 		int i = 0;
@@ -94,6 +95,13 @@ public class TestRunner
 						return 1;
 					}
 					runtime = args [i + 1];
+					i += 2;
+				} else if (args [i] == "--runtime-args") {
+					if (i + 1 >= args.Length) {
+						Console.WriteLine ("Missing argument to --runtime-args command line option.");
+						return 1;
+					}
+					runtime_args = (runtime_args ?? "") + " " + args [i + 1];
 					i += 2;
 				} else if (args [i] == "--config") {
 					if (i + 1 >= args.Length) {
@@ -131,13 +139,6 @@ public class TestRunner
 					}
 					inputFile = args [i + 1];
 					i += 2;
-				} else if (args [i] == "--runtime") {
-					if (i + 1 >= args.Length) {
-						Console.WriteLine ("Missing argument to --runtime command line option.");
-						return 1;
-					}
-					runtime = args [i + 1];
-					i += 2;
 				} else if (args [i] == "--mono-path") {
 					if (i + 1 >= args.Length) {
 						Console.WriteLine ("Missing argument to --mono-path command line option.");
@@ -146,19 +147,12 @@ public class TestRunner
 					mono_path = args [i + 1].Substring(0, args [i + 1].Length);
 
 					i += 2;
-				} else if (args [i] == "--aot-run-flags") {
+				} else if (args [i] == "--mono-gac-prefix") {
 					if (i + 1 >= args.Length) {
-						Console.WriteLine ("Missing argument to --aot-run-flags command line option.");
+						Console.WriteLine ("Missing argument to --mono-gac-prefix command line option.");
 						return 1;
 					}
-					aot_run_flags = args [i + 1].Substring(0, args [i + 1].Length);
-					i += 2;
-				} else if (args [i] == "--aot-build-flags") {
-					if (i + 1 >= args.Length) {
-						Console.WriteLine ("Missing argument to --aot-build-flags command line option.");
-						return 1;
-					}
-					aot_build_flags = args [i + 1].Substring(0, args [i + 1].Length);
+					mono_gac_prefix = args[i + 1];
 					i += 2;
 				} else if (args [i] == "--verbose") {
 					verbose = true;
@@ -221,65 +215,6 @@ public class TestRunner
 				output_width = Math.Min (120, ti.test.Length);
 		}
 
-		if (aot_build_flags != null)  {
-			Console.WriteLine("AOT compiling tests");
-
-			object aot_monitor = new object ();
-			var aot_queue = new Queue<String> (tests); 
-
-			List<Thread> build_threads = new List<Thread> (concurrency);
-
-			for (int j = 0; j < concurrency; ++j) {
-				Thread thread = new Thread (() => {
-					while (true) {
-						String test_name;
-
-						lock (aot_monitor) {
-							if (aot_queue.Count == 0)
-								break;
-							test_name = aot_queue.Dequeue ();
-						}
-
-						string test_bitcode_output = test_name + "_bitcode_tmp";
-						string test_bitcode_arg = ",temp-path=" + test_bitcode_output;
-						string aot_args = aot_build_flags + test_bitcode_arg + " " + test_name;
-
-						Directory.CreateDirectory(test_bitcode_output);
-
-						ProcessStartInfo job = new ProcessStartInfo (runtime, aot_args);
-						job.UseShellExecute = false;
-						job.EnvironmentVariables[ENV_TIMEOUT] = timeout.ToString();
-						job.EnvironmentVariables[MONO_PATH] = mono_path;
-						Process compiler = new Process ();
-						compiler.StartInfo = job;
-
-						compiler.Start ();
-
-						if (!compiler.WaitForExit (timeout * 1000)) {
-							try {
-								compiler.Kill ();
-							} catch {
-							}
-							throw new Exception(String.Format("Timeout AOT compiling tests, output in {0}", test_bitcode_output));
-						} else if (compiler.ExitCode != 0) {
-							throw new Exception(String.Format("Error AOT compiling tests, output in {0}", test_bitcode_output));
-						} else {
-							Directory.Delete (test_bitcode_output, true);
-						}
-					}
-				});
-
-				thread.Start ();
-
-				build_threads.Add (thread);
-			}
-
-			for (int j = 0; j < build_threads.Count; ++j)
-				build_threads [j].Join ();
-
-			Console.WriteLine("Done compiling");
-		}
-
 		List<Thread> threads = new List<Thread> (concurrency);
 
 		DateTime test_start_time = DateTime.UtcNow;
@@ -306,19 +241,16 @@ public class TestRunner
 						Console.Write (".");
 					}
 
-					string test_invoke;
-
-					if (aot_run_flags != null)
-						test_invoke = aot_run_flags + " " + test;
-					else
-						test_invoke = test;
-
 					/* Spawn a new process */
-					string process_args;
-					if (opt_set == null)
-						process_args = test_invoke;
-					else
-						process_args = "-O=" + opt_set + " " + test_invoke;
+
+					string process_args = "";
+
+					if (opt_set != null)
+						process_args += " -O=" + opt_set;
+					if (runtime_args != null)
+						process_args += " " + runtime_args;
+
+					process_args += " " + test;
 
 					ProcessStartInfo info = new ProcessStartInfo (runtime, process_args);
 					info.UseShellExecute = false;
@@ -329,6 +261,8 @@ public class TestRunner
 						info.EnvironmentVariables["MONO_CONFIG"] = config;
 					if (mono_path != null)
 						info.EnvironmentVariables[MONO_PATH] = mono_path;
+					if (mono_gac_prefix != null)
+						info.EnvironmentVariables[MONO_GAC_PREFIX] = mono_gac_prefix;
 					Process p = new Process ();
 					p.StartInfo = info;
 
@@ -346,14 +280,16 @@ public class TestRunner
 					data.stderr = new StringBuilder ();
 
 					p.OutputDataReceived += delegate (object sender, DataReceivedEventArgs e) {
-						if (e.Data != null) {
-							data.stdout.AppendLine (e.Data);
+						lock (data.stdoutLock) {
+							if (e.Data != null)
+								data.stdout.AppendLine (e.Data);
 						}
 					};
 
 					p.ErrorDataReceived += delegate (object sender, DataReceivedEventArgs e) {
-						if (e.Data != null) {
-							data.stderr.AppendLine (e.Data);
+						lock (data.stderrLock) {
+							if (e.Data != null)
+								data.stderr.AppendLine (e.Data);
 						}
 					};
 
@@ -369,14 +305,8 @@ public class TestRunner
 							timedout.Add (data);
 						}
 
-#if !MOBILE_STATIC
 						// Force the process to print a thread dump
-						try {
-							Syscall.kill (p.Id, Signum.SIGQUIT);
-							Thread.Sleep (1000);
-						} catch {
-						}
-#endif
+						TryThreadDump (p.Id, data);
 
 						if (verbose) {
 							output.Write ($"timed out ({timeout}s)");
@@ -610,5 +540,120 @@ public class TestRunner
 		// Spec at http://www.w3.org/TR/2008/REC-xml-20081126/#charsets says only the following chars are valid in XML:
 		// Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]	/* any Unicode character, excluding the surrogate blocks, FFFE, and FFFF. */
 		return Regex.Replace (text, @"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\u10000-\u10FFFF]", "");
+	}
+
+	static void TryThreadDump (int pid, ProcessData data)
+	{
+		try {
+			TryGDB (pid, data);
+			return;
+		} catch {
+		}
+
+#if !FULL_AOT_DESKTOP && !MOBILE
+		/* LLDB cannot produce managed stacktraces for all the threads */
+		try {
+			Syscall.kill (pid, Signum.SIGQUIT);
+			Thread.Sleep (1000);
+		} catch {
+		}
+#endif
+
+		try {
+			TryLLDB (pid, data);
+			return;
+		} catch {
+		}
+	}
+
+	static void TryLLDB (int pid, ProcessData data)
+	{
+		string filename = Path.GetTempFileName ();
+
+		using (StreamWriter sw = new StreamWriter (new FileStream (filename, FileMode.Open, FileAccess.Write)))
+		{
+			sw.WriteLine ("process attach --pid " + pid);
+			sw.WriteLine ("thread list");
+			sw.WriteLine ("thread backtrace all");
+			sw.WriteLine ("detach");
+			sw.WriteLine ("quit");
+			sw.Flush ();
+
+			ProcessStartInfo psi = new ProcessStartInfo {
+				FileName = "lldb",
+				Arguments = "--batch --source \"" + filename + "\" --no-lldbinit",
+				UseShellExecute = false,
+				RedirectStandardError = true,
+				RedirectStandardOutput = true,
+			};
+
+			using (Process process = new Process { StartInfo = psi })
+			{
+				process.OutputDataReceived += delegate (object sender, DataReceivedEventArgs e) {
+					lock (data.stdoutLock) {
+						if (e.Data != null)
+							data.stdout.AppendLine (e.Data);
+					}
+				};
+
+				process.ErrorDataReceived += delegate (object sender, DataReceivedEventArgs e) {
+					lock (data.stderrLock) {
+						if (e.Data != null)
+							data.stderr.AppendLine (e.Data);
+					}
+				};
+
+				process.Start ();
+				process.BeginOutputReadLine ();
+				process.BeginErrorReadLine ();
+				if (!process.WaitForExit (60 * 1000))
+					process.Kill ();
+			}
+		}
+	}
+
+	static void TryGDB (int pid, ProcessData data)
+	{
+		string filename = Path.GetTempFileName ();
+
+		using (StreamWriter sw = new StreamWriter (new FileStream (filename, FileMode.Open, FileAccess.Write)))
+		{
+			sw.WriteLine ("attach " + pid);
+			sw.WriteLine ("info threads");
+			sw.WriteLine ("thread apply all p mono_print_thread_dump(0)");
+			sw.WriteLine ("thread apply all backtrace");
+			sw.Flush ();
+
+			ProcessStartInfo psi = new ProcessStartInfo {
+				FileName = "gdb",
+				Arguments = "-batch -x \"" + filename + "\" -nx",
+				UseShellExecute = false,
+				RedirectStandardError = true,
+				RedirectStandardOutput = true,
+			};
+
+			using (Process process = new Process { StartInfo = psi })
+			{
+				process.OutputDataReceived += delegate (object sender, DataReceivedEventArgs e) {
+					lock (data.stdoutLock) {
+						if (e.Data != null)
+							data.stdout.AppendLine (e.Data);
+					}
+				};
+
+				process.ErrorDataReceived += delegate (object sender, DataReceivedEventArgs e) {
+					lock (data.stderrLock) {
+						if (e.Data != null)
+							data.stderr.AppendLine (e.Data);
+					}
+				};
+
+				process.Start ();
+				process.BeginOutputReadLine ();
+				process.BeginErrorReadLine ();
+				if (!process.WaitForExit (60 * 1000))
+					process.Kill ();
+			}
+		}
 	}
 }

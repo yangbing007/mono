@@ -6,7 +6,7 @@
 //
 // File: RtType.cs
 //
-// <OWNER>[....]</OWNER>
+// <OWNER>Microsoft</OWNER>
 //
 // Implements System.RuntimeType
 //
@@ -58,7 +58,7 @@ namespace System
 
     internal delegate void CtorDelegate(Object instance);
 
-    // Keep this in [....] with FormatFlags defined in typestring.h
+    // Keep this in sync with FormatFlags defined in typestring.h
     internal enum TypeNameFormatFlags
     {
         FormatBasic         = 0x00000000, // Not a bitmask, simply the tersest flag settings possible
@@ -5329,7 +5329,7 @@ namespace System
                             throw new MissingMethodException(Environment.GetResourceString("MissingConstructor_Name", FullName));
                         }
 
-#if FEATURE_MONO_CAS
+#if MONO_FEATURE_CAS
                         // If we're creating a delegate, we're about to call a
                         // constructor taking an integer to represent a target
                         // method. Since this is very difficult (and expensive)
@@ -5360,7 +5360,7 @@ namespace System
                             new SecurityPermission(SecurityPermissionFlag.UnmanagedCode).Demand();
 #endif // FEATURE_CORECLR
                         }
-#endif // FEATURE_MONO_CAS
+#endif // MONO_FEATURE_CAS
                         if (invokeMethod.GetParametersNoCopy().Length == 0)
                         {
                             if (args.Length != 0)
@@ -5892,7 +5892,7 @@ namespace System
         [Flags]
         private enum DispatchWrapperType : int
         {
-            // This enum must stay in [....] with the DispatchWrapperType enum defined in MLInfo.h
+            // This enum must stay in sync with the DispatchWrapperType enum defined in MLInfo.h
             Unknown         = 0x00000001,
             Dispatch        = 0x00000002,
             Record          = 0x00000004,

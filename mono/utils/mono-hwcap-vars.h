@@ -1,3 +1,7 @@
+/**
+ * \file
+ */
+
 #include "config.h"
 
 #if defined (TARGET_ARM)
@@ -12,10 +16,6 @@ MONO_HWCAP_VAR(arm_has_thumb)
 MONO_HWCAP_VAR(arm_has_thumb2)
 
 #elif defined (TARGET_ARM64)
-
-// Nothing here yet.
-
-#elif defined (TARGET_IA64)
 
 // Nothing here yet.
 

@@ -1,4 +1,5 @@
-/*
+/**
+ * \file
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
@@ -9,7 +10,7 @@
 #include <glib.h>
 
 #ifdef HOST_WIN32
-#include <Windows.h>
+#include <windows.h>
 
 BOOL STDMETHODCALLTYPE
 _CorDllMain (HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved);

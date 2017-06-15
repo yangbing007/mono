@@ -1,5 +1,6 @@
-/*
- * icall-windows.c: Windows icall support.
+/**
+ * \file
+ * Windows icall support.
  *
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
@@ -8,8 +9,8 @@
 #include <glib.h>
 
 #if defined(HOST_WIN32)
-#include <WinSock2.h>
-#include <Windows.h>
+#include <winsock2.h>
+#include <windows.h>
 #include "mono/metadata/icall-windows-internals.h"
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
@@ -35,31 +36,31 @@ mono_icall_get_file_path_prefix (const gchar *path)
 }
 
 gpointer
-mono_icall_module_get_hinstance (MonoReflectionModule *module)
+mono_icall_module_get_hinstance (MonoReflectionModuleHandle module)
 {
-	if (module->image && module->image->is_module_handle)
-		return module->image->raw_data;
+	MonoImage *image = MONO_HANDLE_GETVAL (module, image);
+	if (image && image->is_module_handle)
+		return image->raw_data;
 
 	return (gpointer) (-1);
 }
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
-MonoString *
-mono_icall_get_machine_name (void)
+MonoStringHandle
+mono_icall_get_machine_name (MonoError *error)
 {
 	gunichar2 *buf;
 	guint32 len;
-	MonoString *result;
+	MonoStringHandle result;
 
 	len = MAX_COMPUTERNAME_LENGTH + 1;
 	buf = g_new (gunichar2, len);
 
 	result = NULL;
 	if (GetComputerName (buf, (PDWORD) &len)) {
-		MonoError error;
-		result = mono_string_new_utf16_checked (mono_domain_get (), buf, len, &error);
-		mono_error_set_pending_exception (&error);
-	}
+		result = mono_string_new_utf16_handle (mono_domain_get (), buf, len, error);
+	} else
+		result = MONO_HANDLE_NEW (MonoString, NULL);
 
 	g_free (buf);
 	return result;
@@ -73,10 +74,11 @@ mono_icall_get_platform (void)
 	return 2;
 }
 
-MonoString *
-mono_icall_get_new_line (void)
+MonoStringHandle
+mono_icall_get_new_line (MonoError *error)
 {
-	return mono_string_new (mono_domain_get (), "\r\n");
+	error_init (error);
+	return mono_string_new_handle (mono_domain_get (), "\r\n", error);
 }
 
 MonoBoolean
@@ -94,9 +96,8 @@ mono_icall_is_64bit_os (void)
 }
 
 MonoArray *
-mono_icall_get_environment_variable_names (void)
+mono_icall_get_environment_variable_names (MonoError *error)
 {
-	MonoError error;
 	MonoArray *names;
 	MonoDomain *domain;
 	MonoString *str;
@@ -105,6 +106,7 @@ mono_icall_get_environment_variable_names (void)
 	WCHAR* equal_str;
 	int n = 0;
 
+	error_init (error);
 	env_strings = GetEnvironmentStrings();
 
 	if (env_strings) {
@@ -120,9 +122,8 @@ mono_icall_get_environment_variable_names (void)
 	}
 
 	domain = mono_domain_get ();
-	names = mono_array_new_checked (domain, mono_defaults.string_class, n, &error);
-	if (mono_error_set_pending_exception (&error))
-		return NULL;
+	names = mono_array_new_checked (domain, mono_defaults.string_class, n, error);
+	return_val_if_nok (error, NULL);
 
 	if (env_strings) {
 		n = 0;
@@ -132,9 +133,9 @@ mono_icall_get_environment_variable_names (void)
 			if (*env_string != '=') {
 				equal_str = wcschr(env_string, '=');
 				g_assert(equal_str);
-				str = mono_string_new_utf16_checked (domain, env_string, (gint32)(equal_str - env_string), &error);
-				if (mono_error_set_pending_exception (&error))
-					return NULL;
+				str = mono_string_new_utf16_checked (domain, env_string, (gint32)(equal_str - env_string), error);
+				if (!is_ok (error))
+					goto cleanup;
 
 				mono_array_setref (names, n, str);
 				n++;
@@ -144,9 +145,13 @@ mono_icall_get_environment_variable_names (void)
 			env_string++;
 		}
 
-		FreeEnvironmentStrings (env_strings);
 	}
 
+cleanup:
+	if (env_strings)
+		FreeEnvironmentStrings (env_strings);
+	if (!is_ok (error))
+		return NULL;
 	return names;
 }
 
@@ -171,9 +176,10 @@ mono_icall_set_environment_variable (MonoString *name, MonoString *value)
 }
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
-MonoString *
-mono_icall_get_windows_folder_path (int folder)
+MonoStringHandle
+mono_icall_get_windows_folder_path (int folder, MonoError *error)
 {
+	error_init (error);
 	#ifndef CSIDL_FLAG_CREATE
 		#define CSIDL_FLAG_CREATE	0x8000
 	#endif
@@ -184,20 +190,19 @@ mono_icall_get_windows_folder_path (int folder)
 		int len = 0;
 		while (path [len])
 			++ len;
-		MonoError error;
-		MonoString *res = mono_string_new_utf16_checked (mono_domain_get (), path, len, &error);
-		mono_error_set_pending_exception (&error);
-		return res;
+		return mono_string_new_utf16_handle (mono_domain_get (), path, len, error);
 	}
-	return mono_string_new (mono_domain_get (), "");
+	return mono_string_new_handle (mono_domain_get (), "", error);
 }
 #endif /* G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT) */
 
 #if G_HAVE_API_SUPPORT(HAVE_CLASSIC_WINAPI_SUPPORT)
-void
-mono_icall_broadcast_setting_change (void)
+MonoBoolean
+mono_icall_broadcast_setting_change (MonoError *error)
 {
+	error_init (error);
 	SendMessageTimeout (HWND_BROADCAST, WM_SETTINGCHANGE, (WPARAM)NULL, (LPARAM)L"Environment", SMTO_ABORTIFHUNG, 2000, 0);
+	return TRUE;
 }
 
 gint32
@@ -213,9 +218,4 @@ mono_icall_write_windows_debug_string (MonoString *message)
 	OutputDebugString (mono_string_chars (message));
 }
 
-MonoBoolean
-mono_icall_close_process (gpointer handle)
-{
-	return (MonoBoolean)(CloseHandle (handle));
-}
 #endif /* HOST_WIN32 */

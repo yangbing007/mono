@@ -1,6 +1,6 @@
-
-/*
- * marshal.h: Routines for marshaling complex types in P/Invoke methods.
+/**
+ * \file
+ * Routines for marshaling complex types in P/Invoke methods.
  * 
  * Author:
  *   Paolo Molaro (lupus@ximian.com)
@@ -121,6 +121,7 @@ typedef enum {
 	/* Subtypes of MONO_WRAPPER_UNKNOWN */
 	WRAPPER_SUBTYPE_GSHAREDVT_IN_SIG,
 	WRAPPER_SUBTYPE_GSHAREDVT_OUT_SIG,
+	WRAPPER_SUBTYPE_INTERP_IN
 } WrapperSubtype;
 
 typedef struct {
@@ -195,6 +196,10 @@ typedef struct {
 	MonoMethod *method;
 } DelegateInvokeWrapperInfo;
 
+typedef struct {
+	MonoMethodSignature *sig;
+} InterpInWrapperInfo;
+
 /*
  * This structure contains additional information to uniquely identify a given wrapper
  * method. It can be retrieved by mono_marshal_get_wrapper_info () for certain types
@@ -237,6 +242,8 @@ typedef struct {
 		GsharedvtWrapperInfo gsharedvt;
 		/* DELEGATE_INVOKE */
 		DelegateInvokeWrapperInfo delegate_invoke;
+		/* INTERP_IN */
+		InterpInWrapperInfo interp_in;
 	} d;
 } WrapperInfo;
 
@@ -330,7 +337,7 @@ MonoMethodSignature*
 mono_marshal_get_string_ctor_signature (MonoMethod *method);
 
 MonoMethod *
-mono_marshal_get_managed_wrapper (MonoMethod *method, MonoClass *delegate_klass, uint32_t this_loc);
+mono_marshal_get_managed_wrapper (MonoMethod *method, MonoClass *delegate_klass, uint32_t this_loc, MonoError *exernal_error);
 
 gpointer
 mono_marshal_get_vtfixup_ftnptr (MonoImage *image, guint32 token, guint16 type);
@@ -369,12 +376,6 @@ MonoMethod *
 mono_marshal_get_isinst_with_cache (void);
 
 MonoMethod *
-mono_marshal_get_isinst (MonoClass *klass);
-
-MonoMethod *
-mono_marshal_get_castclass (MonoClass *klass);
-
-MonoMethod *
 mono_marshal_get_stelemref (void);
 
 MonoMethod*
@@ -390,8 +391,7 @@ MonoMethod *
 mono_marshal_get_array_accessor_wrapper (MonoMethod *method);
 
 MonoMethod *
-mono_marshal_get_generic_array_helper (MonoClass *klass, MonoClass *iface,
-				       gchar *name, MonoMethod *method);
+mono_marshal_get_generic_array_helper (MonoClass *klass, gchar *name, MonoMethod *method);
 
 MonoMethod *
 mono_marshal_get_thunk_invoke_wrapper (MonoMethod *method);
@@ -414,7 +414,7 @@ mono_marshal_unlock_internal (void);
 /* marshaling internal calls */
 
 void * 
-mono_marshal_alloc (gulong size, MonoError *error);
+mono_marshal_alloc (gsize size, MonoError *error);
 
 void 
 mono_marshal_free (gpointer ptr);
@@ -436,8 +436,8 @@ void
 ves_icall_System_Runtime_InteropServices_Marshal_copy_from_unmanaged (gpointer src, gint32 start_index,
 								      MonoArray *dest, gint32 length);
 
-MonoString *
-ves_icall_System_Runtime_InteropServices_Marshal_PtrToStringAnsi (char *ptr);
+MonoStringHandle
+ves_icall_System_Runtime_InteropServices_Marshal_PtrToStringAnsi (char *ptr, MonoError *error);
 
 MonoString *
 ves_icall_System_Runtime_InteropServices_Marshal_PtrToStringAnsi_len (char *ptr, gint32 len);
@@ -458,7 +458,7 @@ guint32
 ves_icall_System_Runtime_InteropServices_Marshal_GetLastWin32Error (void);
 
 guint32 
-ves_icall_System_Runtime_InteropServices_Marshal_SizeOf (MonoReflectionType *rtype);
+ves_icall_System_Runtime_InteropServices_Marshal_SizeOf (MonoReflectionTypeHandle rtype, MonoError *error);
 
 void
 ves_icall_System_Runtime_InteropServices_Marshal_StructureToPtr (MonoObject *obj, gpointer dst, MonoBoolean delete_old);
@@ -470,7 +470,7 @@ MonoObject *
 ves_icall_System_Runtime_InteropServices_Marshal_PtrToStructure_type (gpointer src, MonoReflectionType *type);
 
 int
-ves_icall_System_Runtime_InteropServices_Marshal_OffsetOf (MonoReflectionType *type, MonoString *field_name);
+ves_icall_System_Runtime_InteropServices_Marshal_OffsetOf (MonoReflectionTypeHandle type, MonoStringHandle field_name, MonoError *error);
 
 gpointer
 ves_icall_System_Runtime_InteropServices_Marshal_StringToBSTR (MonoString *string);
@@ -514,11 +514,11 @@ ves_icall_System_Runtime_InteropServices_Marshal_FreeBSTR (void *ptr);
 void*
 ves_icall_System_Runtime_InteropServices_Marshal_UnsafeAddrOfPinnedArrayElement (MonoArray *arrayobj, int index);
 
-MonoDelegate*
-ves_icall_System_Runtime_InteropServices_Marshal_GetDelegateForFunctionPointerInternal (void *ftn, MonoReflectionType *type);
+MonoDelegateHandle
+ves_icall_System_Runtime_InteropServices_Marshal_GetDelegateForFunctionPointerInternal (void *ftn, MonoReflectionTypeHandle type, MonoError *error);
 
 gpointer
-ves_icall_System_Runtime_InteropServices_Marshal_GetFunctionPointerForDelegateInternal (MonoDelegate *delegate);
+ves_icall_System_Runtime_InteropServices_Marshal_GetFunctionPointerForDelegateInternal (MonoDelegateHandle delegate, MonoError *error);
 
 int
 ves_icall_System_Runtime_InteropServices_Marshal_AddRefInternal (gpointer pUnk);

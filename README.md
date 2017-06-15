@@ -29,6 +29,7 @@ The Mono project is part of the [.NET Foundation](http://www.dotnetfoundation.or
 | Windows      | amd64              | [![windows-amd64][15]][16]   |
 | Windows      | i386               | [![windows-amd64][17]][18]   |
 | CentOS       | s390x (cs)         | [![centos-s390x][19]][20]    |
+| Debian 8     | ppc64el (cs)       | [![debian-8-ppc64el][21]][22]|
 
 _(cs) = community supported architecture_
 
@@ -50,8 +51,10 @@ _(cs) = community supported architecture_
 [16]: https://jenkins.mono-project.com/job/z/label=w64/
 [17]: https://jenkins.mono-project.com/job/z/label=w32/badge/icon
 [18]: https://jenkins.mono-project.com/job/z/label=w32/
-[19]: https://jenkins.mono-project.com/job/z/label=centos-s390x/badge/icon
-[20]: https://jenkins.mono-project.com/job/z/label=centos-s390x
+[19]: https://jenkins.mono-project.com/job/test-mono-mainline-community/label=centos-s390x/badge/icon
+[20]: https://jenkins.mono-project.com/job/test-mono-mainline-community/label=centos-s390x
+[21]: https://jenkins.mono-project.com/job/test-mono-mainline-community-chroot/label=debian-8-ppc64el/badge/icon
+[22]: https://jenkins.mono-project.com/job/test-mono-mainline-community-chroot/label=debian-8-ppc64el
 
 Compilation and Installation
 ============================
@@ -190,22 +193,18 @@ disable the compilation of a Mono runtime with the SGen garbage
 collector.
 
   * On platforms that support it, after building Mono, you will have
-both a `mono` binary and a `mono-sgen` binary. `mono` uses Boehm,
+both a `mono-boehm` binary and a `mono-sgen` binary. `mono-boehm` uses Boehm,
 while `mono-sgen` uses the Simple Generational GC.
 
-* `--with-gc=[included, boehm, none]` - Selects the default Boehm
+* `--with-libgc=[included, none]` - Selects the default Boehm
 garbage collector engine to use.
 
   * *included*: (*slightly modified Boehm GC*) This is the default
 value for the Boehm GC, and it's the most feature complete, it will
 allow Mono to use typed allocations and support the debugger.
 
-  * *boehm*: This is used to use a system-install Boehm GC, it is
-useful to test new features available in Boehm GC, but we do not
-recommend that people use this, as it disables a few features.
-
   * *none*:
-Disables the inclusion of a garbage collector.
+Disables the inclusion of a Boehm garbage collector.
 
   * This defaults to `included`.
 
@@ -462,6 +461,19 @@ disable it.
   * There are a number of runtime options to control this
 also, see the man page.
 
+* `--with-csc=roslyn,mcs,default`
+
+  * Use this option to configure which C# compiler to use.  By default
+    the configure script will pick Roslyn, except on platforms where
+    Roslyn does not work (Big Endian systems) where it will pick mcs.
+
+    If you specify "mcs", then Mono's C# compiler will be used.  This
+    also allows for a complete bootstrap of Mono's core compiler and
+    core libraries from source.
+
+    If you specify "roslyn", then Roslyn's C# compiler will be used.
+    This currently uses Roslyn binaries.
+  
 * `--enable-nacl`
 
   * This configures the Mono compiler to generate code

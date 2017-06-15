@@ -23,7 +23,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
 #if MONO_SECURITY_ALIAS
 extern alias MonoSecurity;
 #endif
@@ -135,7 +135,7 @@ namespace Mono.Btls
 			if (IsServer) {
 				SetPrivateCertificate (nativeServerCertificate);
 			} else {
-				ssl.SetServerName (TargetHost);
+				ssl.SetServerName (ServerName);
 			}
 		}
 
@@ -154,14 +154,22 @@ namespace Mono.Btls
 			}
 		}
 
-		Exception GetException (MonoBtlsSslError status)
+		static Exception GetException (MonoBtlsSslError status)
 		{
-			var error = MonoBtlsError.GetError ();
-			if (error == null)
+			string file;
+			int line;
+			var error = MonoBtlsError.GetError (out file, out line);
+			if (error == 0)
 				return new MonoBtlsException (status);
 
 			var text = MonoBtlsError.GetErrorString (error);
-			return new MonoBtlsException ("{0} {1}", status, text);
+
+			string message;
+			if (file != null)
+				message = string.Format ("{0} {1}\n  at {2}:{3}", status, text, file, line);
+			else
+				message = string.Format ("{0} {1}", status, text);
+			return new MonoBtlsException (message);
 		}
 
 		public override bool ProcessHandshake ()
@@ -210,16 +218,6 @@ namespace Mono.Btls
 			isAuthenticated = true;
 		}
 
-		void SetupCertificateStore ()
-		{
-			MonoBtlsProvider.SetupCertificateStore (ctx.CertificateStore);
-
-			if (Settings != null && Settings.TrustAnchors != null) {
-				var trust = IsServer ? MonoBtlsX509TrustKind.TRUST_CLIENT : MonoBtlsX509TrustKind.TRUST_SERVER;
-				ctx.CertificateStore.AddCollection (Settings.TrustAnchors, trust);
-			}
-		}
-
 		void InitializeConnection ()
 		{
 			ctx = new MonoBtlsSslCtx ();
@@ -229,21 +227,14 @@ namespace Mono.Btls
 			ctx.SetDebugBio (errbio);
 #endif
 
-			SetupCertificateStore ();
+			MonoBtlsProvider.SetupCertificateStore (ctx.CertificateStore, Settings, IsServer);
 
 			if (!IsServer || AskForClientCertificate)
 				ctx.SetVerifyCallback (VerifyCallback, false);
 			if (!IsServer)
 				ctx.SetSelectCallback (SelectCallback);
 
-			var host = TargetHost;
-			if (!string.IsNullOrEmpty (host)) {
-				var pos = TargetHost.IndexOf (':');
-				if (pos > 0)
-					host = host.Substring (0, pos);
-			}
-
-			ctx.SetVerifyParam (MonoBtlsProvider.GetVerifyParam (host, IsServer));
+			ctx.SetVerifyParam (MonoBtlsProvider.GetVerifyParam (Settings, ServerName, IsServer));
 
 			TlsProtocolCode minProtocol, maxProtocol;
 			GetProtocolVersions (out minProtocol, out maxProtocol);
@@ -280,11 +271,13 @@ namespace Mono.Btls
 
 			var cipher = (CipherSuiteCode)ssl.GetCipher ();
 			var protocol = (TlsProtocolCode)ssl.GetVersion ();
+			var serverName = ssl.GetServerName ();
 			Debug ("GET CONNECTION INFO: {0:x}:{0} {1:x}:{1} {2}", cipher, protocol, (TlsProtocolCode)protocol);
 
 			connectionInfo = new MonoTlsConnectionInfo {
 				CipherSuiteCode = cipher,
-				ProtocolVersion = GetProtocol (protocol)
+				ProtocolVersion = GetProtocol (protocol),
+				PeerDomainName = serverName
 			};
 		}
 
@@ -323,6 +316,9 @@ namespace Mono.Btls
 				if (status == MonoBtlsSslError.WantRead) {
 					wantMore = true;
 					return 0;
+				} else if (status == MonoBtlsSslError.ZeroReturn) {
+					wantMore = false;
+					return size;
 				} else if (status != MonoBtlsSslError.None) {
 					throw GetException (status);
 				}
@@ -365,10 +361,11 @@ namespace Mono.Btls
 			}
 		}
 
-		public override void Close ()
+		public override void Shutdown ()
 		{
-			Debug ("Close!");
-			ssl.Dispose ();
+			Debug ("Shutdown!");
+//			ssl.SetQuietShutdown ();
+			ssl.Shutdown ();
 		}
 
 		void Dispose<T> (ref T disposable)
@@ -388,12 +385,12 @@ namespace Mono.Btls
 		{
 			try {
 				if (disposing) {
+					Dispose (ref ssl);
+					Dispose (ref ctx);
 					Dispose (ref remoteCertificate);
 					Dispose (ref nativeServerCertificate);
 					Dispose (ref nativeClientCertificate);
 					Dispose (ref clientCertificate);
-					Dispose (ref ctx);
-					Dispose (ref ssl);
 					Dispose (ref bio);
 					Dispose (ref errbio);
 				}

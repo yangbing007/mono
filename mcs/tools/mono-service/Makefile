@@ -8,13 +8,13 @@ PROGRAM_SNK = ../../class/mono.snk
 
 include ../../build/executable.make
 
-LOCAL_MCS_FLAGS = -unsafe -publicsign
+LOCAL_MCS_FLAGS = -unsafe -publicsign -keyfile:../../class/mono.snk
 LIB_REFS = System.ServiceProcess Mono.Posix System
 
 # Copied from library.make
 
 # -- begin --
-ifeq ($(PLATFORM), win32)
+ifeq ($(BUILD_PLATFORM), win32)
 GACDIR = `cygpath -w $(mono_libdir)`
 GACROOT = `cygpath -w $(DESTDIR)$(mono_libdir)`
 test_flags += -d:WINDOWS

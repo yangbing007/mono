@@ -1,5 +1,6 @@
-/*
- * mono-mmap-windows.c: Windows support for mapping code into the process address space
+/**
+ * \file
+ * Windows support for mapping code into the process address space
  *
  * Author:
  *   Mono Team (mono-list@lists.ximian.com)
@@ -12,8 +13,8 @@
 #include <glib.h>
 
 #if defined(HOST_WIN32)
-#include <Windows.h>
-#include "mono/utils/mono-mmap-windows.h"
+#include <windows.h>
+#include "mono/utils/mono-mmap-windows-internals.h"
 #include <mono/utils/mono-counters.h>
 #include <io.h>
 
@@ -27,8 +28,20 @@ mono_pagesize (void)
 	if (saved_pagesize)
 		return saved_pagesize;
 	GetSystemInfo (&info);
-	saved_pagesize = info.dwAllocationGranularity;
+	saved_pagesize = info.dwPageSize;
 	return saved_pagesize;
+}
+
+int
+mono_valloc_granule (void)
+{
+	SYSTEM_INFO info;
+	static int saved_valloc_granule = 0;
+	if (saved_valloc_granule)
+		return saved_valloc_granule;
+	GetSystemInfo (&info);
+	saved_valloc_granule = info.dwAllocationGranularity;
+	return saved_valloc_granule;
 }
 
 int
@@ -58,6 +71,9 @@ mono_valloc (void *addr, size_t length, int flags, MonoMemAccountType type)
 	int prot = mono_mmap_win_prot_from_flags (flags);
 	/* translate the flags */
 
+	if (!mono_valloc_can_alloc (length))
+		return NULL;
+
 	ptr = VirtualAlloc (addr, length, mflags, prot);
 
 	account_mem (type, (ssize_t)length);
@@ -73,6 +89,9 @@ mono_valloc_aligned (size_t length, size_t alignment, int flags, MonoMemAccountT
 	char *aligned;
 
 	if (!mem)
+		return NULL;
+
+	if (!mono_valloc_can_alloc (length))
 		return NULL;
 
 	aligned = aligned_address (mem, length, alignment);

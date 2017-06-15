@@ -23,13 +23,22 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-#if SECURITY_DEP
+#if SECURITY_DEP && MONO_FEATURE_BTLS
+#if MONO_SECURITY_ALIAS
+extern alias MonoSecurity;
+#endif
 using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography.X509Certificates;
+
+#if MONO_SECURITY_ALIAS
+using MonoSecurity::Mono.Security.Interface;
+#else
+using Mono.Security.Interface;
+#endif
 
 namespace Mono.Btls
 {
@@ -53,28 +62,28 @@ namespace Mono.Btls
 			get { return (BoringX509StoreHandle)base.Handle; }
 		}
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_x509_store_new ();
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_x509_store_from_ctx (IntPtr ctx);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static IntPtr mono_btls_x509_store_from_ssl_ctx (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_x509_store_load_locations (IntPtr handle, IntPtr file, IntPtr path);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_x509_store_set_default_paths (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_x509_store_add_cert (IntPtr handle, IntPtr x509);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static int mono_btls_x509_store_get_count (IntPtr handle);
 
-		[MethodImpl (MethodImplOptions.InternalCall)]
+		[DllImport (BTLS_DYLIB)]
 		extern static void mono_btls_x509_store_free (IntPtr handle);
 
 		Dictionary<IntPtr,MonoBtlsX509Lookup> lookupHash;
@@ -159,8 +168,7 @@ namespace Mono.Btls
 
 		internal void AddTrustedRoots ()
 		{
-			var systemRoot = MonoBtlsProvider.GetSystemStoreLocation ();
-			LoadLocations (null, systemRoot);
+			MonoBtlsProvider.SetupCertificateStore (this, MonoTlsSettings.DefaultSettings, false);
 		}
 
 		public MonoBtlsX509Lookup AddLookup (MonoBtlsX509LookupType type)

@@ -1,21 +1,23 @@
-/*
- * console-win32-uwp.c: UWP console support for Mono.
+/**
+ * \file
+ * UWP console support for Mono.
  *
  * Copyright 2016 Microsoft
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
 */
 #include <config.h>
 #include <glib.h>
+#include "mono/utils/mono-compiler.h"
 
 #if G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT)
-#include <Windows.h>
+#include <windows.h>
 #include "mono/metadata/console-win32-internals.h"
 
 MonoBoolean
 ves_icall_System_ConsoleDriver_Isatty (HANDLE handle)
 {
 	MonoError mono_error;
-	mono_error_init (&mono_error);
+	error_init (&mono_error);
 
 	g_unsupported_api ("Console");
 
@@ -31,7 +33,7 @@ MonoBoolean
 ves_icall_System_ConsoleDriver_SetEcho (MonoBoolean want_echo)
 {
 	MonoError mono_error;
-	mono_error_init (&mono_error);
+	error_init (&mono_error);
 
 	g_unsupported_api ("Console");
 
@@ -47,7 +49,7 @@ MonoBoolean
 ves_icall_System_ConsoleDriver_SetBreak (MonoBoolean want_break)
 {
 	MonoError mono_error;
-	mono_error_init (&mono_error);
+	error_init (&mono_error);
 
 	g_unsupported_api ("Console");
 
@@ -63,7 +65,7 @@ gint32
 ves_icall_System_ConsoleDriver_InternalKeyAvailable (gint32 timeout)
 {
 	MonoError mono_error;
-	mono_error_init (&mono_error);
+	error_init (&mono_error);
 
 	g_unsupported_api ("Console");
 
@@ -79,7 +81,7 @@ MonoBoolean
 ves_icall_System_ConsoleDriver_TtySetup (MonoString *keypad, MonoString *teardown, MonoArray **control_chars, int **size)
 {
 	MonoError mono_error;
-	mono_error_init (&mono_error);
+	error_init (&mono_error);
 
 	g_unsupported_api ("Console");
 
@@ -93,8 +95,5 @@ ves_icall_System_ConsoleDriver_TtySetup (MonoString *keypad, MonoString *teardow
 
 #else /* G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT) */
 
-#ifdef _MSC_VER
-// Quiet Visual Studio linker warning, LNK4221, in cases when this source file intentional ends up empty.
-void __mono_win32_console_windows_uwp_quiet_lnk4221(void) {}
-#endif
+MONO_EMPTY_SOURCE_FILE (console_win32_uwp);
 #endif /* G_HAVE_API_SUPPORT(HAVE_UWP_WINAPI_SUPPORT) */
