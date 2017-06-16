@@ -111,7 +111,7 @@ and reduce the number of casts drastically.
 
 #if defined (HOST_EMSCRIPTEN)
 #define USE_EMSCRIPTEN_BACKEND
-#if defined (_POSIX_VERSION)
+#elif defined (_POSIX_VERSION)
 #if defined (__MACH__) && !defined (USE_SIGNALS_ON_MACH)
 #define USE_MACH_BACKEND
 #else

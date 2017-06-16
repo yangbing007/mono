@@ -124,6 +124,9 @@ static gboolean mono_current_thread_has_handle_block_guard (void);
 static gboolean
 first_managed (MonoStackFrameInfo *frame, MonoContext *ctx, gpointer addr)
 {
+#ifdef HOST_EMSCRIPTEN
+	return FALSE;
+#else
 	gpointer **data = (gpointer **)addr;
 
 	if (!frame->managed)
@@ -138,6 +141,7 @@ first_managed (MonoStackFrameInfo *frame, MonoContext *ctx, gpointer addr)
 	*data = MONO_CONTEXT_GET_SP (ctx);
 	g_assert (*data);
 	return TRUE;
+#endif
 }
 
 static gpointer
@@ -170,6 +174,7 @@ mini_clear_abort_threshold (void)
 static inline void
 mini_set_abort_threshold (MonoContext *ctx)
 {
+#ifndef HOST_EMSCRIPTEN
 	gpointer sp = MONO_CONTEXT_GET_SP (ctx);
 	MonoJitTlsData *jit_tls = mono_get_jit_tls ();
 	// Only move it up, to avoid thrown/caught
@@ -179,6 +184,7 @@ mini_set_abort_threshold (MonoContext *ctx)
 	if (!jit_tls->abort_exc_stack_threshold || above_threshold) {
 		jit_tls->abort_exc_stack_threshold = sp;
 	}
+#endif
 }
 
 // Note: In the case that the frame is above where the thread abort
