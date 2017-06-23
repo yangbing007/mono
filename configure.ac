@@ -3204,6 +3204,7 @@ case "$host" in
 	*-emscripten)
 		TARGET=EMSCRIPTEN;
 		host_emscripten=yes
+		ACCESS_UNALIGNED="no"
 
 		# _GNU_SOURCE is needed for ucred, setresuid, getresuid to be defined
 		CFLAGS="$CFLAGS -D_GNU_SOURCE"

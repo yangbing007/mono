@@ -1049,7 +1049,6 @@ mono_metadata_locate_token (MonoImage *meta, guint32 token)
 const char *
 mono_metadata_string_heap (MonoImage *meta, guint32 index)
 {
-	g_warning("Heap strings image %s index %u size %u", meta->name, (unsigned int)index, (unsigned int)meta->heap_strings.size);
 	g_assert (index < meta->heap_strings.size);
 	g_return_val_if_fail (index < meta->heap_strings.size, "");
 	return meta->heap_strings.data + index;
