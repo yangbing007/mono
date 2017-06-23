@@ -29,5 +29,6 @@ mono_runtime_install_handlers (void)
 guint32
 mono_arch_cpu_optimizations (guint32 *exclude_mask)
 {
+	*exclude_mask = 0;
 	return 0;
 }
