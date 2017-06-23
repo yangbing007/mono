@@ -2116,7 +2116,7 @@ load_aot_module (MonoAssembly *assembly, gpointer user_data)
 			table = (char *)info->image_table;
 		g_assert (table);
 
-		table_len = *(guint32*)table;
+		memcpy(&table_len, table, sizeof(guint32)); // memcpy for standard-safe unaligned memory access
 		table += sizeof (guint32);
 		amodule->image_table = g_new0 (MonoImage*, table_len);
 		amodule->image_names = g_new0 (MonoAssemblyName, table_len);
