@@ -7701,18 +7701,25 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 
 		if ((cfg->method == method) && cfg->coverage_info) {
 			guint32 cil_offset = ip - header->code;
+			gpointer counter = &cfg->coverage_info->data [cil_offset].count;
 			cfg->coverage_info->data [cil_offset].cil_code = ip;
 
-			/* TODO: Use an increment here */
-#if defined(TARGET_X86)
-			MONO_INST_NEW (cfg, ins, OP_STORE_MEM_IMM);
-			ins->inst_p0 = &(cfg->coverage_info->data [cil_offset].count);
-			ins->inst_imm = 1;
-			MONO_ADD_INS (cfg->cbb, ins);
-#else
-			EMIT_NEW_PCONST (cfg, ins, &(cfg->coverage_info->data [cil_offset].count));
-			MONO_EMIT_NEW_STORE_MEMBASE_IMM (cfg, OP_STORE_MEMBASE_IMM, ins->dreg, 0, 1);
-#endif
+			if (mono_arch_opcode_supported (OP_ATOMIC_ADD_I4)) {
+				MonoInst *one_ins, *load_ins;
+
+				EMIT_NEW_PCONST (cfg, load_ins, counter);
+				EMIT_NEW_ICONST (cfg, one_ins, 1);
+				MONO_INST_NEW (cfg, ins, OP_ATOMIC_ADD_I4);
+				ins->dreg = mono_alloc_ireg (cfg);
+				ins->inst_basereg = load_ins->dreg;
+				ins->inst_offset = 0;
+				ins->sreg2 = one_ins->dreg;
+				ins->type = STACK_I4;
+				MONO_ADD_INS (cfg->cbb, ins);
+			} else {
+				EMIT_NEW_PCONST (cfg, ins, counter);
+				MONO_EMIT_NEW_STORE_MEMBASE_IMM (cfg, OP_STORE_MEMBASE_IMM, ins->dreg, 0, 1);
+			}
 		}
 
 		if (cfg->verbose_level > 3)
@@ -11457,7 +11464,20 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 				CHECK_STACK (info->sig->param_count);
 				sp -= info->sig->param_count;
 
-				ins = mono_emit_jit_icall (cfg, info->func, sp);
+				if (cfg->compile_aot && !strcmp (info->name, "mono_threads_attach_coop")) {
+					MonoInst *addr;
+
+					/*
+					 * This is called on unattached threads, so it cannot go through the trampoline
+					 * infrastructure. Use an indirect call through a got slot initialized at load time
+					 * instead.
+					 */
+					EMIT_NEW_AOTCONST (cfg, addr, MONO_PATCH_INFO_JIT_ICALL_ADDR_NOCALL, (char*)info->name);
+					ins = mini_emit_calli (cfg, info->sig, sp, addr, NULL, NULL);
+				} else {
+					ins = mono_emit_jit_icall (cfg, info->func, sp);
+				}
+
 				if (!MONO_TYPE_IS_VOID (info->sig->ret))
 					*sp++ = ins;
 
@@ -11473,18 +11493,21 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 				CHECK_STACK_OVF (1);
 
 				switch (ip [1]) {
-					case CEE_MONO_LDPTR_CARD_TABLE:
-						ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_GC_CARD_TABLE_ADDR, NULL);
-						break;
-					case CEE_MONO_LDPTR_NURSERY_START:
-						ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_GC_NURSERY_START, NULL);
-						break;
-					case CEE_MONO_LDPTR_NURSERY_BITS:
-						ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_GC_NURSERY_BITS, NULL);
-						break;
-					case CEE_MONO_LDPTR_INT_REQ_FLAG:
-						ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_INTERRUPTION_REQUEST_FLAG, NULL);
-						break;
+				case CEE_MONO_LDPTR_CARD_TABLE:
+					ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_GC_CARD_TABLE_ADDR, NULL);
+					break;
+				case CEE_MONO_LDPTR_NURSERY_START:
+					ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_GC_NURSERY_START, NULL);
+					break;
+				case CEE_MONO_LDPTR_NURSERY_BITS:
+					ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_GC_NURSERY_BITS, NULL);
+					break;
+				case CEE_MONO_LDPTR_INT_REQ_FLAG:
+					ins = mini_emit_runtime_constant (cfg, MONO_PATCH_INFO_INTERRUPTION_REQUEST_FLAG, NULL);
+					break;
+				default:
+					g_assert_not_reached ();
+					break;
 				}
 
 				*sp++ = ins;
@@ -11749,7 +11772,7 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 				MonoInst *ad_ins, *jit_tls_ins;
 				MonoBasicBlock *next_bb = NULL, *call_bb = NULL;
 
-				g_assert (!mono_threads_is_coop_enabled ());
+				g_assert (!mono_threads_is_blocking_transition_enabled ());
 
 				cfg->orig_domain_var = mono_compile_create_var (cfg, &mono_defaults.int_class->byval_arg, OP_LOCAL);
 

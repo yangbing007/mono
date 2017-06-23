@@ -1969,6 +1969,7 @@ load_aot_module (MonoAssembly *assembly, gpointer user_data)
 			globals = (void **)info->globals;
 			g_assert (globals);
 		}
+		found_aot_name = g_strdup (aot_name);
 	} else {
 		char *err;
 
@@ -3543,7 +3544,8 @@ decode_patch (MonoAotModule *aot_module, MonoMemPool *mp, MonoJumpInfo *ji, guin
 		break;
 	}
 	case MONO_PATCH_INFO_INTERNAL_METHOD:
-	case MONO_PATCH_INFO_JIT_ICALL_ADDR: {
+	case MONO_PATCH_INFO_JIT_ICALL_ADDR:
+	case MONO_PATCH_INFO_JIT_ICALL_ADDR_NOCALL: {
 		guint32 len = decode_value (p, &p);
 
 		ji->data.name = (char*)p;

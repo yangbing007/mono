@@ -4306,7 +4306,7 @@ emit_runtime_invoke_body (MonoMethodBuilder *mb, MonoImage *image, MonoMethod *m
  * its \p method argument.
  */
 MonoMethod *
-mono_marshal_get_runtime_invoke (MonoMethod *method, gboolean virtual_)
+mono_marshal_get_runtime_invoke_full (MonoMethod *method, gboolean virtual_, gboolean need_direct_wrapper)
 {
 	MonoMethodSignature *sig, *csig, *callsig;
 	MonoMethodBuilder *mb;
@@ -4317,7 +4317,6 @@ mono_marshal_get_runtime_invoke (MonoMethod *method, gboolean virtual_)
 	static MonoMethodSignature *finalize_signature = NULL;
 	char *name;
 	const char *param_names [16];
-	gboolean need_direct_wrapper = FALSE;
 	WrapperInfo *info;
 
 	g_assert (method);
@@ -4332,9 +4331,6 @@ mono_marshal_get_runtime_invoke (MonoMethod *method, gboolean virtual_)
 		finalize_signature->hasthis = 1;
 	}
 
-	if (virtual_)
-		need_direct_wrapper = TRUE;
-
 	/* 
 	 * Use a separate cache indexed by methods to speed things up and to avoid the
 	 * boundless mempool growth caused by the signature_dup stuff below.
@@ -4348,21 +4344,10 @@ mono_marshal_get_runtime_invoke (MonoMethod *method, gboolean virtual_)
 	if (res)
 		return res;
 		
-	if (method->klass->rank && (method->iflags & METHOD_IMPL_ATTRIBUTE_INTERNAL_CALL) &&
-		(method->iflags & METHOD_IMPL_ATTRIBUTE_NATIVE)) {
-		/* 
-		 * Array Get/Set/Address methods. The JIT implements them using inline code
-		 * so we need to create an invoke wrapper which calls the method directly.
-		 */
-		need_direct_wrapper = TRUE;
-	}
-		
 	if (method->string_ctor) {
 		callsig = lookup_string_ctor_signature (mono_method_signature (method));
 		if (!callsig)
 			callsig = add_string_ctor_signature (method);
-		/* Can't share this as we push a string as this */
-		need_direct_wrapper = TRUE;
 	} else {
 		if (method_is_dynamic (method))
 			callsig = mono_metadata_signature_dup_full (method->klass->image, mono_method_signature (method));
@@ -4488,6 +4473,31 @@ mono_marshal_get_runtime_invoke (MonoMethod *method, gboolean virtual_)
 	mono_mb_free (mb);
 
 	return res;	
+}
+
+MonoMethod *
+mono_marshal_get_runtime_invoke (MonoMethod *method, gboolean virtual_)
+{
+	gboolean need_direct_wrapper = FALSE;
+
+	if (virtual_)
+		need_direct_wrapper = TRUE;
+
+	if (method->klass->rank && (method->iflags & METHOD_IMPL_ATTRIBUTE_INTERNAL_CALL) &&
+		(method->iflags & METHOD_IMPL_ATTRIBUTE_NATIVE)) {
+		/*
+		 * Array Get/Set/Address methods. The JIT implements them using inline code
+		 * so we need to create an invoke wrapper which calls the method directly.
+		 */
+		need_direct_wrapper = TRUE;
+	}
+
+	if (method->string_ctor) {
+		/* Can't share this as we push a string as this */
+		need_direct_wrapper = TRUE;
+	}
+
+	return mono_marshal_get_runtime_invoke_full (method, virtual_, need_direct_wrapper);
 }
 
 /*
@@ -7682,7 +7692,7 @@ mono_marshal_emit_native_wrapper (MonoImage *image, MonoMethodBuilder *mb, MonoM
 		mono_mb_add_local (mb, sig->ret);
 	}
 
-	if (mono_threads_is_coop_enabled ()) {
+	if (mono_threads_is_blocking_transition_enabled ()) {
 		/* local 4, dummy local used to get a stack address for suspend funcs */
 		coop_gc_stack_dummy = mono_mb_add_local (mb, &mono_defaults.int_class->byval_arg);
 		/* local 5, the local to be used when calling the suspend funcs */
@@ -7723,7 +7733,7 @@ mono_marshal_emit_native_wrapper (MonoImage *image, MonoMethodBuilder *mb, MonoM
 	}
 
 	// In coop mode need to register blocking state during native call
-	if (mono_threads_is_coop_enabled ()) {
+	if (mono_threads_is_blocking_transition_enabled ()) {
 		// Perform an extra, early lookup of the function address, so any exceptions
 		// potentially resulting from the lookup occur before entering blocking mode.
 		if (!func_param && !MONO_CLASS_IS_IMPORT (mb->method->klass) && aot) {
@@ -7808,7 +7818,7 @@ mono_marshal_emit_native_wrapper (MonoImage *image, MonoMethodBuilder *mb, MonoM
 	}
 
 	/* Unblock before converting the result, since that can involve calls into the runtime */
-	if (mono_threads_is_coop_enabled ()) {
+	if (mono_threads_is_blocking_transition_enabled ()) {
 		mono_mb_emit_ldloc (mb, coop_gc_var);
 		mono_mb_emit_ldloc_addr (mb, coop_gc_stack_dummy);
 		mono_mb_emit_icall (mb, mono_threads_exit_gc_safe_region_unbalanced);
@@ -8577,7 +8587,7 @@ mono_marshal_emit_managed_wrapper (MonoMethodBuilder *mb, MonoMethodSignature *i
 	/* try { */
 	clause_catch->try_offset = clause_finally->try_offset = mono_mb_get_label (mb);
 
-	if (!mono_threads_is_coop_enabled ()) {
+	if (!mono_threads_is_blocking_transition_enabled ()) {
 		mono_mb_emit_byte (mb, MONO_CUSTOM_PREFIX);
 		mono_mb_emit_byte (mb, CEE_MONO_JIT_ATTACH);
 	} else {
@@ -8585,6 +8595,10 @@ mono_marshal_emit_managed_wrapper (MonoMethodBuilder *mb, MonoMethodSignature *i
 		mono_mb_emit_byte (mb, MONO_CUSTOM_PREFIX);
 		mono_mb_emit_byte (mb, CEE_MONO_LDDOMAIN);
 		mono_mb_emit_ldloc_addr (mb, attach_dummy_local);
+		/*
+		 * This icall is special cased in the JIT so it works in native-to-managed wrappers in unattached threads.
+		 * Keep this in sync with the CEE_JIT_ICALL code in the JIT.
+		 */
 		mono_mb_emit_icall (mb, mono_threads_attach_coop);
 		mono_mb_emit_stloc (mb, attach_cookie_local);
 	}
@@ -8755,7 +8769,7 @@ mono_marshal_emit_managed_wrapper (MonoMethodBuilder *mb, MonoMethodSignature *i
 	clause_finally->try_len = mono_mb_get_label (mb) - clause_finally->try_offset;
 	clause_finally->handler_offset = mono_mb_get_label (mb);
 
-	if (!mono_threads_is_coop_enabled ()) {
+	if (!mono_threads_is_blocking_transition_enabled ()) {
 		mono_mb_emit_byte (mb, MONO_CUSTOM_PREFIX);
 		mono_mb_emit_byte (mb, CEE_MONO_JIT_DETACH);
 	} else {
