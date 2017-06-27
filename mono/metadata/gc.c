@@ -953,7 +953,7 @@ mono_gc_init (void)
 	mono_coop_cond_init (&exited_cond);
 	mono_coop_sem_init (&finalizer_sem, 0);
 
-#ifndef LAZY_GC_THREAD_CREATION
+#if !defined(LAZY_GC_THREAD_CREATION) && !defined(HOST_EMSCRIPTEN)
 	mono_gc_init_finalizer_thread ();
 #endif
 }
