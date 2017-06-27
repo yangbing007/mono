@@ -1338,6 +1338,9 @@ if test "x$support_boehm" = "xyes"; then
 
 fi
 
+AM_CONDITIONAL(SUPPORT_NULLGC, test "x$libgc" = xnone)
+
+
 dnl
 dnl End of Boehm GC Configuration
 dnl
