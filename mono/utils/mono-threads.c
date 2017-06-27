@@ -632,6 +632,7 @@ mono_threads_attach_tools_thread (void)
 
 #ifdef HOST_EMSCRIPTEN
 static int attachTries = 0;
+static MonoThreadInfo *emscripten_info = NULL;
 #endif
 
 MonoThreadInfo*
@@ -639,8 +640,8 @@ mono_thread_info_attach (void)
 {
 #ifdef HOST_EMSCRIPTEN
 	if (attachTries) {
-		g_warning("Called mono_thread_info_attach twice. Because TLS is currently broken, this will shortly crash. Halting early so we get a nice clean stack:\n");
-		abort();
+		g_warning("Called mono_thread_info_attach twice. Because TLS is currently broken, this will shortly crash.\n");
+		//abort();
 	}
 	attachTries++;
 #endif
@@ -659,7 +660,8 @@ mono_thread_info_attach (void)
 
 	g_assert (mono_threads_inited);
 
-	info = (MonoThreadInfo *) mono_native_tls_get_value (thread_info_key);
+	/*info = (MonoThreadInfo *) mono_native_tls_get_value (thread_info_key);*/
+	info = emscripten_info;
 	if (!info) {
 		info = (MonoThreadInfo *) g_malloc0 (thread_info_size);
 		THREADS_DEBUG ("attaching %p\n", info);
@@ -667,6 +669,7 @@ mono_thread_info_attach (void)
 			g_free (info);
 			return NULL;
 		}
+		emscripten_info = info;
 	}
 
 	return info;
@@ -689,9 +692,11 @@ mono_thread_info_detach (void)
 
 	g_assert (mono_threads_inited);
 
-	info = (MonoThreadInfo *) mono_native_tls_get_value (thread_info_key);
+	info = emscripten_info;
+	/*info = (MonoThreadInfo *) mono_native_tls_get_value (thread_info_key);*/
 	if (info) {
 		THREADS_DEBUG ("detaching %p\n", info);
+		emscripten_info = NULL;
 		unregister_thread (info);
 	}
 }
