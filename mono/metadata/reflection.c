@@ -1049,7 +1049,9 @@ param_objects_construct (MonoDomain *domain, MonoClass *refclass, MonoMethodSign
 	mspecs = g_new (MonoMarshalSpec*, sig->param_count + 1);
 	mono_method_get_marshal_info (method, mspecs);
 
+	BEGIN_NO_CHECKPOINT();
 	res = mono_array_new_handle (domain, mono_class_get_mono_parameter_info_class (), sig->param_count, error);
+	END_NO_CHECKPOINT();
 	if (!res)
 		goto leave;
 
