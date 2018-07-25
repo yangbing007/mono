@@ -13,6 +13,8 @@ Mono.Compiler/NativeCodeHandle.cs
 Mono.Compiler/RuntimeInformation.cs
 
 Mono.Compiler.BigStep/BigStep.cs
+Mono.Compiler.BigStep/BSType.cs
+Mono.Compiler.BigStep/ArgStack.cs
 
 LLVMSharp/Conversions.cs
 LLVMSharp/ExecutionEngine.cs

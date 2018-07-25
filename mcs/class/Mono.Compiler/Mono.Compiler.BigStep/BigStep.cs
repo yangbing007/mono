@@ -43,11 +43,14 @@ namespace Mono.Compiler.BigStep
 
 		// translation environment for a single function
 		class Env {
+			private ArgStack currentStack;
 			private IRuntimeInformation RuntimeInfo { get; }
+			ArgStack ArgStack { get => currentStack ; }
 			public Env (IRuntimeInformation runtimeInfo, MethodInfo methodInfo)
 			{
 				this.RuntimeInfo = runtimeInfo;
 				this.ReturnType = methodInfo.ReturnType;
+				currentStack = new ArgStack ();
 			}
 
 			public ClrType ReturnType { get; }
@@ -61,6 +64,7 @@ namespace Mono.Compiler.BigStep
 			LLVMBuilderRef builder;
 			LLVMValueRef function;
 			LLVMBasicBlockRef entry;
+			LLVMBasicBlockRef currentBB;
 
 			public LLVMModuleRef Module { get => module; }
 			public LLVMValueRef Function { get => function; }
@@ -76,6 +80,7 @@ namespace Mono.Compiler.BigStep
 				function = LLVM.AddFunction (module, name, funTy);
 				entry = LLVM.AppendBasicBlock (function, "entry");
 				LLVM.PositionBuilderAtEnd (builder, entry);
+				currentBB = entry;
 			}
 
 
