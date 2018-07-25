@@ -22,6 +22,10 @@ namespace MonoTests.Mono.CompilerInterface
 			return;
 		}
 
+		public static int IdentityMethod (int x) {
+			return x;
+		}
+
 		public static int AddMethod (int a, int b) {
 			return a + b;
 		}
@@ -138,6 +142,23 @@ namespace MonoTests.Mono.CompilerInterface
 
 			/* 0xc3 is `RET` in AMD64 assembly */
 			Assert.AreEqual ((byte) 0xc3, *nativeCode.Blob);
+		}
+
+		[Test]
+		public unsafe void TestIdentity () {
+			// goal: minimum test of fn arg and stack manipulation in BigStep
+			ClassInfo ci = runtimeInfo.GetClassInfoFor (typeof (ICompilerTests).AssemblyQualifiedName);
+
+			MethodInfo mi = runtimeInfo.GetMethodInfoFor (ci, "IdentityMethod");
+
+			NativeCodeHandle nativeCode;
+
+			var result = compiler.CompileMethod (runtimeInfo, mi, CompilationFlags.None, out nativeCode);
+			InstalledRuntimeCode irc = runtimeInfo.InstallCompilationResult (result, mi, nativeCode);
+			var o = runtimeInfo.ExecuteInstalledMethod (irc, 42);
+			Assert.IsNotNull (o);
+			Assert.AreEqual (typeof(int), o.GetType ());
+			Assert.AreEqual (42, (int)o);
 		}
 	}
 }
