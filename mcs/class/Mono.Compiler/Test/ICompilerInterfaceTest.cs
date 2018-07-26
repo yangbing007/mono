@@ -39,13 +39,13 @@ namespace MonoTests.Mono.CompilerInterface
 		}
 
 		[Test]
-		[Ignore("Not ready yet")]
 		public void TestAddMethod () {
-			MethodInfo methodInfo = null; // TODO: get EmptyMethod somehow?
+			ClassInfo ci = runtimeInfo.GetClassInfoFor (typeof (ICompilerTests).AssemblyQualifiedName);
+			MethodInfo mi = runtimeInfo.GetMethodInfoFor (ci, "AddMethod");
 			NativeCodeHandle nativeCode;
 
-			CompilationResult result = compiler.CompileMethod (runtimeInfo, methodInfo, CompilationFlags.None, out nativeCode);
-			InstalledRuntimeCode irc = runtimeInfo.InstallCompilationResult (result, methodInfo, nativeCode);
+			CompilationResult result = compiler.CompileMethod (runtimeInfo, mi, CompilationFlags.None, out nativeCode);
+			InstalledRuntimeCode irc = runtimeInfo.InstallCompilationResult (result, mi, nativeCode);
 			
 			int addition = (int) runtimeInfo.ExecuteInstalledMethod (irc, 1, 2);
 			Assert.AreEqual (addition, 3);

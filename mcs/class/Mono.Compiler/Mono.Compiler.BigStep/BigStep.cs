@@ -236,7 +236,10 @@ namespace Mono.Compiler.BigStep
 				LLVM.BuildStore (builder, value, ptr);
 			}
 
-
+			public LLVMValueRef EmitAdd (LLVMValueRef left, LLVMValueRef right)
+			{
+				return LLVM.BuildBinOp (builder, LLVMOpcode.LLVMAdd, left, right, "add");
+			}
 		}
 
 		void Preamble (Env env, Builder builder)
@@ -268,7 +271,12 @@ namespace Mono.Compiler.BigStep
 						r = TranslateLdcI4 (env, builder, iter.DecodeParamI ());
 						break;
 					case Opcode.Ldarg0:
-						r = TranslateLdarg (env, builder, 0);
+					case Opcode.Ldarg1:
+						r = TranslateLdarg (env, builder, opcode - Opcode.Ldarg0);
+						break;
+					case Opcode.Add:
+						// TODO: pass op
+						r = TranslateBinaryOp (env, builder);
 						break;
 					case Opcode.Ret:
 						r = TranslateRet (env, builder);
@@ -315,6 +323,26 @@ namespace Mono.Compiler.BigStep
 			return Ok;
 		}
 
+		CompilationResult TranslateBinaryOp (Env env, Builder builder)
+		{
+			var a0 = Pop (env, builder);
+			var a1 = Pop (env, builder);
+			if (a0.LoweredType != a1.LoweredType) {
+				Console.Error.WriteLine ("BinOp: Types of operands do not match");
+				return CompilationResult.InternalError;
+			}
+
+			var v0 = builder.EmitLoad (a0.Ptr, "summand0");
+			var v1 = builder.EmitLoad (a1.Ptr, "summand1");
+
+			var vr = builder.EmitAdd (v0, v1);
+
+			var ar = Push (env, builder, a0.LoweredType);
+			builder.EmitStore (vr, ar.Ptr);
+
+			return Ok;
+		}
+
 		ArgStackValue Push (Env env, Builder builder, BSType t)
 		{
 			// FIXME: create stack slots up front and just bump a
@@ -323,6 +351,7 @@ namespace Mono.Compiler.BigStep
 			var v = builder.EmitAlloca (t, "stack-slot");
 			var a = new ArgStackValue ();
 			a.Ptr = v;
+			a.LoweredType = t;
 			env.ArgStack.Push (a);
 			return a;
 		}
