@@ -233,6 +233,9 @@ namespace Mono.Compiler.BigStep
 				var opcode = iter.Opcode;
 				var opflags = iter.Flags;
 				switch (opcode) {
+					case Opcode.LdcI4_0:
+						r = TranslateLdcI4 (env, builder, 0);
+						break;
 					case Opcode.LdcI4S:
 						r = TranslateLdcI4 (env, builder, iter.DecodeParamI ());
 						break;
