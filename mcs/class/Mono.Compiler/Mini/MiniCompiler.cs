@@ -14,6 +14,10 @@ namespace Mono.Compiler
 			return CompilationResult.Ok;
 		}
 
+		public string Name {
+			get { return "MiniCompiler"; }
+		}
+
 		[MethodImpl (MethodImplOptions.InternalCall)]
 		static extern bool CompileMethod(RuntimeMethodHandle runtimeMethodHandle, int flags, out NativeCodeHandle nativeCode);
 	}

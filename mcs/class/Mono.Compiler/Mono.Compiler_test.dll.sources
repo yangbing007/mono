@@ -1,2 +1,5 @@
 ICompilerInterfaceTest.cs
 MiniCompilerTest.cs
+MiniRegressionTests.cs
+MiniRegressionTestsBasic.cs
+MiniRegressionTestsBasic.tests.cs

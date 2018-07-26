@@ -15,5 +15,9 @@ namespace Mono.Compiler
 			var bs = new Mono.Compiler.BigStep.BigStep (runtimeInfo, flags);
 			return bs.CompileMethod (methodInfo, out nativeCode);
 		}
+
+		public string Name {
+			get { return "ManagedJIT"; }
+		}
 	}
 }
