@@ -16,6 +16,9 @@ namespace Mono.Compiler.BigStep
 {
 	public class BigStep
 	{
+		// FIXME
+		const string TargetTriple = "x86_64-apple-macosx10.12.3";
+
 		const CompilationResult Ok = CompilationResult.Ok;
 		CompilationFlags Flags { get; }
 		IRuntimeInformation RuntimeInfo { get; }
@@ -101,6 +104,20 @@ namespace Mono.Compiler.BigStep
 				LLVM.InitializeX86TargetInfo ();
 				LLVM.InitializeX86AsmParser ();
 				LLVM.InitializeX86AsmPrinter ();
+				LLVM.InitializeX86Disassembler ();
+
+				/* this looks like unused code, but it initializes the target configuration */
+				LLVMTargetRef target = LLVM.GetTargetFromName("x86-64");
+				LLVMTargetMachineRef tmachine = LLVM.CreateTargetMachine(
+						target,
+						TargetTriple,
+						"x86-64",  // processor
+						"",  // feature
+						LLVMCodeGenOptLevel.LLVMCodeGenLevelNone,
+						LLVMRelocMode.LLVMRelocDefault,
+						LLVMCodeModel.LLVMCodeModelDefault);
+				/* </side effect code> */
+
 				LLVMMCJITCompilerOptions options = new LLVMMCJITCompilerOptions { NoFramePointerElim = 0 };
 				LLVM.InitializeMCJITCompilerOptions(options);
 				if (LLVM.CreateMCJITCompilerForModule(out var engine, Module, options, out var error) != Success)
