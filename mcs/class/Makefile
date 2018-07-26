@@ -14,7 +14,6 @@ basic_SUBDIRS := \
 	$(MCS_MODE_dirs) \
 	../tools/cil-stringreplacer \
 	corlib \
-	Mono.Compiler \
 	Mono.Security \
 	System \
 	System.XML \
@@ -23,6 +22,7 @@ basic_SUBDIRS := \
 	System.ComponentModel.Composition.4.5 \
 	System.Numerics \
 	System.Xml.Linq \
+	Mono.Compiler \
 	Mono.CompilerServices.SymbolWriter	\
 	PEAPI \
 	../ilasm \
@@ -33,7 +33,6 @@ build_SUBDIRS :=  \
 	$(MCS_MODE_dirs) \
 	../tools/cil-stringreplacer \
 	corlib \
-	Mono.Compiler \
 	Mono.Security \
 	System \
 	System.XML \
@@ -47,6 +46,7 @@ build_SUBDIRS :=  \
 	System.IO.Compression \
 	System.Drawing			\
 	Mono.CompilerServices.SymbolWriter	\
+	Mono.Compiler \
 	PEAPI
 
 ifdef MCS_MODE
@@ -207,12 +207,12 @@ xammac_4_5_dirs := \
 
 net_4_x_dirs := \
 	corlib				\
-	Mono.Compiler \
 	Mono.Security \
 	System				\
 	System.XML			\
 	System.Security			\
 	Mono.CompilerServices.SymbolWriter \
+	Mono.Compiler \
 	Mono.Posix			\
 	System.Core			\
 	System.Configuration	\
