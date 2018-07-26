@@ -56,10 +56,18 @@ namespace Mono.Compiler.BigStep
 				this.MethodName = methodInfo.ClassInfo.Name + "::" + methodInfo.Name;
 				this.BSTypes = new BSTypes (runtimeInfo);
 				this.ReturnType = methodInfo.ReturnType;
+
+				var parameters = methodInfo.Parameters;
+				this.ArgumentTypes = new ClrType [parameters.Count];
+				int i = 0;
+				foreach (ParameterInfo pi in parameters)
+					this.ArgumentTypes [i++] = pi.ParameterType;
+
 				currentStack = new ArgStack ();
 			}
 
 			public ClrType ReturnType { get; }
+			public ClrType[] ArgumentTypes { get; }
 
 			public readonly BSTypes BSTypes;
 			public readonly string MethodName;
@@ -74,6 +82,7 @@ namespace Mono.Compiler.BigStep
 			LLVMValueRef function;
 			LLVMBasicBlockRef entry;
 			LLVMBasicBlockRef currentBB;
+			LLVMValueRef[] arguments;
 
 			public LLVMModuleRef Module { get => module; }
 			public LLVMValueRef Function { get => function; }
@@ -83,13 +92,22 @@ namespace Mono.Compiler.BigStep
 				builder = LLVM.CreateBuilder ();
 			}
 
-			public void BeginFunction (string name, BSType returnType) {
-				//FIXME: get types of args
-				var funTy = LLVM.FunctionType (returnType.Lowered, Array.Empty <LLVMTypeRef> (), false);
+			public void BeginFunction (string name, BSType returnType, BSType[] args) {
+				var llvm_arguments = new LLVMTypeRef [args.Length];
+				for (int i = 0; i < args.Length; i++)
+					llvm_arguments [i] = args [i].Lowered;
+
+				var funTy = LLVM.FunctionType (returnType.Lowered, llvm_arguments, false);
 				function = LLVM.AddFunction (module, name, funTy);
 				entry = LLVM.AppendBasicBlock (function, "entry");
 				LLVM.PositionBuilderAtEnd (builder, entry);
 				currentBB = entry;
+
+				arguments = new LLVMValueRef [args.Length];
+				for (int i = 0; i < args.Length; i++) {
+					arguments [i] = LLVM.GetParam (function, (uint) i);
+					LLVM.SetValueName (arguments [i], "arg" + i);
+				}
 			}
 
 			internal unsafe void PrintDisassembly (NativeCodeHandle nch) {
@@ -208,6 +226,11 @@ namespace Mono.Compiler.BigStep
 				return LLVM.BuildLoad (builder, ptr, nameHint);
 			}
 
+			public LLVMValueRef EmitArgumentLoad (uint position)
+			{
+				return arguments [position];
+			}
+
 			public void EmitStore (LLVMValueRef value, LLVMValueRef ptr)
 			{
 				LLVM.BuildStore (builder, value, ptr);
@@ -219,7 +242,12 @@ namespace Mono.Compiler.BigStep
 		void Preamble (Env env, Builder builder)
 		{
 			var rt = LowerType (env, env.ReturnType);
-			builder.BeginFunction (env.MethodName, rt);
+
+			BSType[] args = new BSType [env.ArgumentTypes.Length];
+			for (int i = 0; i < env.ArgumentTypes.Length; i++)
+				args [i] = LowerType (env, env.ArgumentTypes [i]);
+
+			builder.BeginFunction (env.MethodName, rt, args);
 		}
 
 		CompilationResult TranslateBody (Env env, Builder builder, MethodBody body)
@@ -238,6 +266,9 @@ namespace Mono.Compiler.BigStep
 						break;
 					case Opcode.LdcI4S:
 						r = TranslateLdcI4 (env, builder, iter.DecodeParamI ());
+						break;
+					case Opcode.Ldarg0:
+						r = TranslateLdarg (env, builder, 0);
 						break;
 					case Opcode.Ret:
 						r = TranslateRet (env, builder);
@@ -271,6 +302,15 @@ namespace Mono.Compiler.BigStep
 			var a = Push (env, builder, t);
 			
 			var v = builder.ConstInt (t, (ulong)c, false);
+			builder.EmitStore (v, a.Ptr);
+			return Ok;
+		}
+
+		CompilationResult TranslateLdarg (Env env, Builder builder, uint position)
+		{
+			var t = LowerType (env, env.ArgumentTypes [position]);
+			var a = Push (env, builder, t);
+			var v = builder.EmitArgumentLoad (position);
 			builder.EmitStore (v, a.Ptr);
 			return Ok;
 		}
