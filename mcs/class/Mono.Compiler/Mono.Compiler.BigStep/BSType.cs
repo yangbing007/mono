@@ -1,6 +1,9 @@
 using System;
 using System.Reflection;
 
+using SimpleJit.Metadata;
+using Mono.Compiler;
+
 using LLVMSharp;
 
 namespace Mono.Compiler.BigStep {
@@ -10,24 +13,59 @@ namespace Mono.Compiler.BigStep {
 	/// </summary>
 	public class BSType
 	{
-		// FIXME: is this the most useful one?
-		RuntimeTypeHandle rttype;
+		ClrType rttype;
+		LLVMTypeRef? lowered;
 
-		private BSType (TypeInfo t) {
-			rttype = t.TypeHandle;
+		private BSType (ClrType t)
+		{
+			rttype = t;
 		}
 
-		public static BSType FromTypeInfo (TypeInfo t) {
+		private BSType (BSType t, LLVMTypeRef l)
+			: this (t.rttype)
+		{
+			lowered = l;
+		}
+
+		public static BSType FromClrType (ClrType t)
+		{
 			// TODO: cache?
 			return new BSType (t);
 		}
 
-
+		public static BSType FromTypeInfo (TypeInfo t)
+		{
+			return FromClrType (RuntimeInformation.ClrTypeFromType (t));
+		}
 
 		public LLVMTypeRef Lowered {
 			get {
-				throw new NotImplementedException ("BSType.Lowered");
+				if (lowered != null)
+					return (LLVMTypeRef)lowered;
+				else
+					throw new NotImplementedException ("Don't know how to lower " + rttype.ToString ());
 			}
 		}
+
+		internal BSType LowerAs (LLVMTypeRef l)
+		{
+			return new BSType (this, l);
+		}
+
+
 	}
+
+	/// <summary>
+	///   Some predefined BSType values from the runtime
+	/// </summary>
+	struct BSTypes {
+		public readonly BSType VoidType;
+		public readonly BSType Int32Type;
+
+		internal BSTypes (IRuntimeInformation runtimeInfo) {
+			VoidType = BSType.FromClrType (runtimeInfo.VoidType).LowerAs (LLVMTypeRef.VoidType ());
+			Int32Type = BSType.FromClrType (runtimeInfo.Int32Type).LowerAs (LLVMTypeRef.Int32Type ());
+		}
+	}
+
 }
