@@ -7,7 +7,7 @@ namespace Mono.Compiler.BigStep
 {
 
 	public struct ArgStackValue {
-		public LLVMValueRef Val;
+		public LLVMValueRef Ptr;
 	}
 
 

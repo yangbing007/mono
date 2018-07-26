@@ -15,5 +15,7 @@ namespace Mono.Compiler
 		MethodInfo GetMethodInfoFor (ClassInfo classInfo, string methodName);
 
 		ClrType VoidType { get; }
+
+		ClrType Int32Type { get; }
 	}
 }

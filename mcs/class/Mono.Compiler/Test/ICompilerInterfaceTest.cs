@@ -22,6 +22,10 @@ namespace MonoTests.Mono.CompilerInterface
 			return;
 		}
 
+		public static int ConstIntMethod () {
+			return 42;
+		}
+
 		public static int IdentityMethod (int x) {
 			return x;
 		}
@@ -142,6 +146,26 @@ namespace MonoTests.Mono.CompilerInterface
 
 			/* 0xc3 is `RET` in AMD64 assembly */
 			Assert.AreEqual ((byte) 0xc3, *nativeCode.Blob);
+		}
+
+		[Test]
+		public unsafe void TestConstInt () {
+			// Goal: Ldc and ret of int32
+			ClassInfo ci = runtimeInfo.GetClassInfoFor (typeof (ICompilerTests).AssemblyQualifiedName);
+
+			MethodInfo mi = runtimeInfo.GetMethodInfoFor (ci, "ConstIntMethod");
+			Assert.IsNotNull (mi);
+
+			NativeCodeHandle nativeCode;
+
+			var result = compiler.CompileMethod (runtimeInfo, mi, CompilationFlags.None, out nativeCode);
+			Assert.AreEqual (CompilationResult.Ok, result);
+			InstalledRuntimeCode irc = runtimeInfo.InstallCompilationResult (result, mi, nativeCode);
+			Assert.IsNotNull (irc);
+			var o = runtimeInfo.ExecuteInstalledMethod (irc, 1);
+			Assert.IsNotNull (o);
+			Assert.AreEqual (typeof(int), o.GetType ());
+			Assert.AreEqual (42, (int)o);
 		}
 
 		[Test]
