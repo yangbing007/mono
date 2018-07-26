@@ -329,7 +329,7 @@ namespace Mono.Compiler.BigStep
 		{
 			var a0 = Pop (env, builder);
 			var a1 = Pop (env, builder);
-			if (a0.LoweredType != a1.LoweredType) {
+			if (a0.StoredType != a1.StoredType) {
 				Console.Error.WriteLine ("BinOp: Types of operands do not match");
 				return CompilationResult.InternalError;
 			}
@@ -339,7 +339,7 @@ namespace Mono.Compiler.BigStep
 
 			var vr = builder.EmitAdd (v0, v1);
 
-			var ar = Push (env, builder, a0.LoweredType);
+			var ar = Push (env, builder, a0.StoredType);
 			builder.EmitStore (vr, ar.Ptr);
 
 			return Ok;
@@ -353,7 +353,7 @@ namespace Mono.Compiler.BigStep
 			var v = builder.EmitAlloca (t, "stack-slot");
 			var a = new ArgStackValue ();
 			a.Ptr = v;
-			a.LoweredType = t;
+			a.StoredType = t;
 			env.ArgStack.Push (a);
 			return a;
 		}
