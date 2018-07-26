@@ -81,7 +81,6 @@ public partial class MiniRegressionTestsBasic
 		return a + b;
 	}
 
-	[Category ("!ManagedJIT")]
 	public static int test_3_add_imm () {
 		int a = 1; 
 		return a + 2;
