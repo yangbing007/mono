@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 
 using Mono.Compiler;
 using SimpleJit.Metadata;
@@ -91,6 +92,34 @@ namespace Mono.Compiler.BigStep
 				currentBB = entry;
 			}
 
+			internal unsafe void PrintDisassembly (NativeCodeHandle nch) {
+				IntPtr fnptr = new IntPtr (nch.Blob);
+
+				// FIXME: do this once
+				LLVMDisasmContextRef disasm = LLVM.CreateDisasm (TargetTriple, IntPtr.Zero, 0, null, null);
+				LLVM.SetDisasmOptions (disasm, 2 /* print imm as hex */);
+
+				// FIXME: use codebuf length
+				const long maxlength = 0x100;
+				long pc = 0;
+
+				Console.WriteLine ("disasm:");
+				while (pc < maxlength) {
+					const int stringBufSize = 0x40;
+					IntPtr outString = Marshal.AllocHGlobal (stringBufSize);
+
+					long oldPc = pc;
+					pc += LLVM.DisasmInstruction (disasm, IntPtr.Add (fnptr, (int) pc), 0x100, 0, outString, stringBufSize);
+
+					string s = Marshal.PtrToStringAnsi (outString);
+
+					/* HACK because we don't know codbuf length; this is the disassembled string of 0x00 0x00 */
+					if (s.Contains ("addb") && s.Contains ("%al, (%rax)")) {
+						break;
+					}
+					Console.WriteLine ($"{oldPc:x4}: {s}");
+				}
+			}
 
 			internal CompilationResult Finish (out NativeCodeHandle result) {
 
@@ -140,6 +169,9 @@ namespace Mono.Compiler.BigStep
 				unsafe {
 					result = new NativeCodeHandle ((byte*)fnptr, -1);
 				}
+
+				// FIXME: guard behind debug flag
+				PrintDisassembly (result);
 
 				//FIXME: cleanup in a Dispose method?
 
