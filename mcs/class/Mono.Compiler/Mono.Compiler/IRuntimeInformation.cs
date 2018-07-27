@@ -23,5 +23,7 @@ namespace Mono.Compiler
 		ClrType Int32Type { get; }
 
 		ClrType Int64Type { get; }
+
+		ClrType NativeIntType { get; }
 	}
 }
