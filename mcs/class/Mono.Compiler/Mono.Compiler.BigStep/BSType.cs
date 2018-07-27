@@ -53,6 +53,19 @@ namespace Mono.Compiler.BigStep {
 		}
 
 
+		public BSType Pointer {
+			get { return MakePointerType (this); }
+		}
+
+		internal static BSType MakePointerType (BSType bs) {
+			BSType ptrTy = new BSType (ClrType.MakePointerType (bs.rttype));
+			if (bs.lowered != null) {
+				LLVMTypeRef llvmTy =  LLVM.PointerType ((LLVMTypeRef)bs.lowered, 0);
+				ptrTy = ptrTy.LowerAs (llvmTy);
+			}
+			return ptrTy;
+		}
+
 	}
 
 	/// <summary>
@@ -62,11 +75,14 @@ namespace Mono.Compiler.BigStep {
 		public readonly BSType VoidType;
 		public readonly BSType Int32Type;
 		public readonly BSType Int64Type;
+		public readonly BSType NativeIntType;
 
 		internal BSTypes (IRuntimeInformation runtimeInfo) {
 			VoidType = BSType.FromClrType (runtimeInfo.VoidType).LowerAs (LLVMTypeRef.VoidType ());
 			Int32Type = BSType.FromClrType (runtimeInfo.Int32Type).LowerAs (LLVMTypeRef.Int32Type ());
 			Int64Type = BSType.FromClrType (runtimeInfo.Int64Type).LowerAs (LLVMTypeRef.Int64Type ());
+			/* FIXME: intptr is platform-dependent */
+			NativeIntType = BSType.FromClrType (runtimeInfo.NativeIntType).LowerAs (LLVMTypeRef.Int64Type ());
 		}
 	}
 
