@@ -243,6 +243,13 @@ namespace Mono.Compiler.BigStep
 			{
 				return LLVM.BuildBinOp (builder, LLVMOpcode.LLVMAdd, left, right, "add");
 			}
+
+			// Only works on constant expressions
+			public LLVMValueRef EmitConstIntToPtr (LLVMValueRef constant, BSType ty)
+			{
+				return LLVM.ConstIntToPtr (constant, ty.Lowered);
+			}
+
 		}
 
 		void Preamble (Env env, Builder builder)
@@ -334,17 +341,14 @@ namespace Mono.Compiler.BigStep
 		CompilationResult TranslateLdsfld (Env env, Builder builder, int token)
 		{
 			FieldInfo fieldInfo = RuntimeInfo.GetFieldInfoForToken (env.MethodInfo, token);
-			BSType t = env.BSTypes.Int64Type;
-			Int64 staticFieldAddress = RuntimeInfo.ComputeFieldAddress (fieldInfo);
+			BSType t = env.BSTypes.Int32Type;  /* FIXME: use Field Type */
+			IntPtr staticFieldAddress = RuntimeInfo.ComputeFieldAddress (fieldInfo);
 
 			/* FIXME: generate code to read int64 value from address `staticFieldAddress` */
-			LLVMTypeRef llvm_ptype = LLVM.PointerType (LLVMTypeRef.Int64Type (), 0);
-			BSType ptype = BSType.FromClrType (RuntimeInfo.VoidType /* TODO */).LowerAs (llvm_ptype);
-
-			string fieldName = "some field name";
-			var sfa = builder.ConstInt (ptype, (ulong) staticFieldAddress, false);
+			string fieldName = "field_Tok" + token.ToString ();
+			var sfa = builder.EmitConstIntToPtr (builder.ConstInt (env.BSTypes.NativeIntType, (ulong) staticFieldAddress, false), t.Pointer);
 			var v = builder.EmitLoad (sfa, fieldName);
-			var a = Push (env, builder, t /* FIXME: use Field Type */);
+			var a = Push (env, builder, t);
 			Console.WriteLine ("v= " + v.Pointer);
 			Console.WriteLine ("a= " + a.Ptr.Pointer);
 			builder.EmitStore (v, a.Ptr);
