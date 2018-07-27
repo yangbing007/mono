@@ -50,9 +50,12 @@ namespace Mono.Compiler.BigStep
 			private ArgStack currentStack;
 			private IRuntimeInformation RuntimeInfo { get; }
 			internal ArgStack ArgStack { get => currentStack ; }
+			public MethodInfo MethodInfo { get; }
+
 			public Env (IRuntimeInformation runtimeInfo, MethodInfo methodInfo)
 			{
 				this.RuntimeInfo = runtimeInfo;
+				this.MethodInfo = methodInfo;
 				this.MethodName = methodInfo.ClassInfo.Name + "::" + methodInfo.Name;
 				this.BSTypes = new BSTypes (runtimeInfo);
 				this.ReturnType = methodInfo.ReturnType;
@@ -276,6 +279,9 @@ namespace Mono.Compiler.BigStep
 					case Opcode.Ldarg1:
 						r = TranslateLdarg (env, builder, opcode - Opcode.Ldarg0);
 						break;
+					case Opcode.Ldsfld:
+						r = TranslateLdsfld (env, builder, iter.DecodeParamI ());
+						break;
 					case Opcode.Add:
 						// TODO: pass op
 						r = TranslateBinaryOp (env, builder);
@@ -321,6 +327,26 @@ namespace Mono.Compiler.BigStep
 			var t = LowerType (env, env.ArgumentTypes [position]);
 			var a = Push (env, builder, t);
 			var v = builder.EmitArgumentLoad (position);
+			builder.EmitStore (v, a.Ptr);
+			return Ok;
+		}
+
+		CompilationResult TranslateLdsfld (Env env, Builder builder, int token)
+		{
+			FieldInfo fieldInfo = RuntimeInfo.GetFieldInfoForToken (env.MethodInfo, token);
+			BSType t = env.BSTypes.Int64Type;
+			Int64 staticFieldAddress = RuntimeInfo.ComputeFieldAddress (fieldInfo);
+
+			/* FIXME: generate code to read int64 value from address `staticFieldAddress` */
+			LLVMTypeRef llvm_ptype = LLVM.PointerType (LLVMTypeRef.Int64Type (), 0);
+			BSType ptype = BSType.FromClrType (RuntimeInfo.VoidType /* TODO */).LowerAs (llvm_ptype);
+
+			string fieldName = "some field name";
+			var sfa = builder.ConstInt (ptype, (ulong) staticFieldAddress, false);
+			var v = builder.EmitLoad (sfa, fieldName);
+			var a = Push (env, builder, t /* FIXME: use Field Type */);
+			Console.WriteLine ("v= " + v.Pointer);
+			Console.WriteLine ("a= " + a.Ptr.Pointer);
 			builder.EmitStore (v, a.Ptr);
 			return Ok;
 		}

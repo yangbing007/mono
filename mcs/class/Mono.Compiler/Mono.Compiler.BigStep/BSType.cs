@@ -61,10 +61,12 @@ namespace Mono.Compiler.BigStep {
 	struct BSTypes {
 		public readonly BSType VoidType;
 		public readonly BSType Int32Type;
+		public readonly BSType Int64Type;
 
 		internal BSTypes (IRuntimeInformation runtimeInfo) {
 			VoidType = BSType.FromClrType (runtimeInfo.VoidType).LowerAs (LLVMTypeRef.VoidType ());
 			Int32Type = BSType.FromClrType (runtimeInfo.Int32Type).LowerAs (LLVMTypeRef.Int32Type ());
+			Int64Type = BSType.FromClrType (runtimeInfo.Int64Type).LowerAs (LLVMTypeRef.Int64Type ());
 		}
 	}
 
