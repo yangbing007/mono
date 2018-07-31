@@ -43,6 +43,68 @@ namespace MonoTests.Mono.CompilerInterface
 			return staticField;
 		}
 
+                public static int IfElse1 (int a, int b) {
+                        if (a > 10) {
+                                b = a * b;
+                        } else{
+                                b = a + b;
+                        }
+                        
+                        return b;
+		}
+
+                public static int ForLoop1 (int unit) {
+                        int result = 0;
+                        for (int i = 0; i <= 5; i++) {
+                                result += unit;
+                        }
+                        
+                        return result;
+		}
+
+                public static int WhileLoop1 (int times, int unit) {
+                        int result = 0;
+                        while (times > 0) {
+                                result += unit;
+                                times--;
+                        }
+                        
+                        return result;
+		}
+
+		[Test]
+		public void TestWhileLoop1 () {
+                        InstalledRuntimeCode irc = CompileCode("WhileLoop1");
+                        int addition = (int) runtimeInfo.ExecuteInstalledMethod (irc, 3, 7);
+			Assert.AreEqual (21, addition);
+                }
+
+		[Test]
+		public void TestForLoop1 () {
+                        InstalledRuntimeCode irc = CompileCode("ForLoop1");
+                        int addition = (int) runtimeInfo.ExecuteInstalledMethod (irc, 3);
+			Assert.AreEqual (18, addition);
+                }
+
+		[Test]
+		public void TestIfElse1 () {
+                        InstalledRuntimeCode irc = CompileCode("IfElse1");
+                        int addition = (int) runtimeInfo.ExecuteInstalledMethod (irc, 11, 2);
+			Assert.AreEqual (22, addition);
+                        addition = (int) runtimeInfo.ExecuteInstalledMethod (irc, 5, 2);
+			Assert.AreEqual (7, addition);
+                }
+
+                private InstalledRuntimeCode CompileCode(string methodName) {
+                        ClassInfo ci = runtimeInfo.GetClassInfoFor (typeof (ICompilerTests).AssemblyQualifiedName);
+			MethodInfo mi = runtimeInfo.GetMethodInfoFor (ci, methodName);
+			NativeCodeHandle nativeCode;
+
+			CompilationResult result = compiler.CompileMethod (runtimeInfo, mi, CompilationFlags.None, out nativeCode);
+			InstalledRuntimeCode irc = runtimeInfo.InstallCompilationResult (result, mi, nativeCode);
+                        return irc;
+                }
+                
 		[Test]
 		public void TestAddMethod () {
 			ClassInfo ci = runtimeInfo.GetClassInfoFor (typeof (ICompilerTests).AssemblyQualifiedName);
