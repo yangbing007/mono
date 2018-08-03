@@ -72,6 +72,19 @@ namespace MonoTests.Mono.CompilerInterface
                         return result;
 		}
 
+                public static int ArrayAccess1 (int[] array, int index) {
+                        int result = array[index];
+                        return result;
+		}
+
+		[Test]
+		public void TestArrayAccess1 () {
+                        int[] array = new int[]{4937, 5443, 6673, 7561};
+                        InstalledRuntimeCode irc = CompileCode("ArrayAccess1");
+                        int result = (int) runtimeInfo.ExecuteInstalledMethod (irc, array, 2);
+			Assert.AreEqual (6673, result);
+                }
+
 		[Test]
 		public void TestWhileLoop1 () {
                         InstalledRuntimeCode irc = CompileCode("WhileLoop1");

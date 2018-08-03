@@ -409,6 +409,12 @@ namespace Mono.Compiler.BigStep {
 						opParam = iter.DecodeParamI ();
 						operands.Add (args[opParam]);
 						break; 
+                                        case Opcode.LdelemI4:
+                                                // Assumption: the first operand is an array. CLR should guarantee this.
+                                                Type t = tempOds[0].Type.AsSystemType;
+                                                t = t.GetElementType();
+				                output = new TempOperand (this, RuntimeInformation.ClrTypeFromType(t));
+                                                break;
 				        case Opcode.Ldsfld:
 				                int token = iter.DecodeParamI ();
 				                FieldInfo fieldInfo = runtime.GetFieldInfoForToken (methodInfo, token);

@@ -355,6 +355,38 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                                                 return new NamedTempValue (tmp, tempName);
                                                         });
                                 break;
+                        case Opcode.LdelemI1:
+                                // load element from array
+                                // tmp (array), tmp (index) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                return GetIntArrayElement(operands[0].Type, 1, tempName, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.LdelemI2:
+                                // load element from array
+                                // tmp (array), tmp (index) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                return GetIntArrayElement(operands[0].Type, 2, tempName, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.LdelemI4:
+                                // load element from array
+                                // tmp (array), tmp (index) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                return GetIntArrayElement(operands[0].Type, 4, tempName, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.LdelemI8:
+                                // load element from array
+                                // tmp (array), tmp (index) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                return GetIntArrayElement(operands[0].Type, 8, tempName, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
                         case Opcode.Ldsfld:
                                 // const => tmp
                                 int token = (operands[0] as Int32ConstOperand).Value;
@@ -630,6 +662,27 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 			}
 		}
 
+                private NamedTempValue GetIntArrayElement(
+                        ClrType arrayClrType, uint elementSize, string resultValueName, LLVMValueRef arrayBaseAddr, LLVMValueRef index) 
+                {
+                        // Get array's base address
+                        // The trick is to treat the metadata also as array elements and use GEP to perform pointer arithmetics
+                        LLVMValueRef offset = LLVM.ConstInt(
+                                LLVM.Int32Type(), RuntimeInfo.GetArrayBaseOffset(arrayClrType) / elementSize, false);
+                        LLVMValueRef basePtr = LLVM.BuildGEP (
+                                builder, arrayBaseAddr, new LLVMValueRef[] { offset }, this.NextTempName);
+
+                        // Array access is translated to two LLVM operations: 
+                        // (1) get element address 
+                        //   %tmpPtr = getelementptr i32, i32* %tmp0, i64 %tmp1
+                        // (2) get element data
+                        //   %result = load i32, i32* %tmpPtr
+                        LLVMValueRef tmpPtr = LLVM.BuildGEP (builder, basePtr, new LLVMValueRef[] { index }, this.NextTempName);
+                        //LLVM.ConstPtrToInt()
+                        LLVMValueRef tmp = LLVM.BuildLoad (builder, tmpPtr, resultValueName);
+                        return new NamedTempValue (tmp, resultValueName);
+                }
+
                 private Tuple<LLVMValueRef, LLVMBasicBlockRef, LLVMBasicBlockRef> CompareAndJumpTo (
                         LLVMRealPredicate rprd, LLVMIntPredicate prd, IOperand[] operands, ValueMappings vm, int pcIndex)
                 {
@@ -789,7 +842,7 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 				return LLVM.ConstReal (LLVM.FloatType (), ((Float64ConstOperand)cod).Value);
 			}
 
-			throw new Exception ("Unexpected. The const operand is tno recognized.");
+			throw new Exception ("Unexpected. The const operand is not recognized.");
 		}
 
 		private LLVMValueRef GetConstValue (IntPtr constant)
@@ -797,6 +850,10 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 			return LLVM.ConstInt (TranslateType (RuntimeInformation.NativeIntType), (ulong)constant, true);
 		}
 
+                /// Translate a CLR type to an LLVM type. Basically, 
+                ///   - Primitive types will be mapped to their counterparts in LLVM
+                ///   - Non-array class types are all mapped to pointer types 
+                ///   - Array types are mapped to pointer types of the mapped element types
 		private static LLVMTypeRef TranslateType (ClrType ctyp)
 		{
 			if (ctyp == RuntimeInformation.BoolType) {
@@ -805,7 +862,7 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 			if (ctyp == RuntimeInformation.Int8Type) {
 				return LLVM.Int8Type ();
 			}
-			if (ctyp == RuntimeInformation.Int16Type || ctyp == RuntimeInformation.Int8Type) {
+			if (ctyp == RuntimeInformation.Int16Type || ctyp == RuntimeInformation.UInt8Type) {
 				return LLVM.Int16Type ();
 			}
 			if (ctyp == RuntimeInformation.Int32Type || ctyp == RuntimeInformation.UInt16Type) {
@@ -832,6 +889,13 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 			}
 
 			Type typ = ctyp.AsSystemType;
+                        if (typ.IsArray) {
+                                // If this is array, recursively call this method to drill down the subtypes. Our goal
+                                // is to make an LLVM pointer type which maps exactly all the dimensions of the array.
+                                typ = typ.GetElementType();
+                                ctyp = RuntimeInformation.ClrTypeFromType(typ);
+                                return LLVM.PointerType(TranslateType (ctyp), 0); // 0 = default address sapce
+                        }
 			if (typ.IsClass) {
 				return LLVM.PointerType(LLVM.Int64Type (), 0); // 0 = default address sapce
 			}
