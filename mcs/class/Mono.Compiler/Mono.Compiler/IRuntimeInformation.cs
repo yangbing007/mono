@@ -17,5 +17,8 @@ namespace Mono.Compiler
 		FieldInfo GetFieldInfoForToken (MethodInfo mi, int token);
 
 		IntPtr ComputeFieldAddress (FieldInfo fi);
+
+                /// For a given array type, get the offset of the vector relative to the base address.
+                uint GetArrayBaseOffset(ClrType type);
 	}
 }

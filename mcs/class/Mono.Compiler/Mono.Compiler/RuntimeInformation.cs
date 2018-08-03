@@ -40,6 +40,17 @@ namespace Mono.Compiler {
 			return new FieldInfo (srfi);
 		} 
 
+                /// (mono/metadata/object-internals.h)
+                /// struct _MonoArray { // Base
+                ///   MonoObject obj;   // 16 bytes
+                ///   MonoArrayBounds *bounds; // 8 bytes
+                ///   mono_array_size_t max_length; // 8 bytes
+                ///   mono_64bitaligned_t vector [MONO_ZERO_LEN_ARRAY]; // Start of vector
+                /// }
+                public uint GetArrayBaseOffset(ClrType type){
+                        return 32;
+                }
+
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		static extern IntPtr ComputeStaticFieldAddress (RuntimeFieldHandle handle);
 
