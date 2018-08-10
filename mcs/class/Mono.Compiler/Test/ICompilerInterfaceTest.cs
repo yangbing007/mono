@@ -72,17 +72,59 @@ namespace MonoTests.Mono.CompilerInterface
                         return result;
 		}
 
-                public static int ArrayAccess1 (int[] array, int index) {
+                public static void BreakLoop1 (int[] values, int[] counts, int skip) {
+                        for (int i = 0; i < 100; i++) {
+                                if (i == 5) {
+                                        break;
+                                } else if (i % skip == 0) {
+                                        continue;
+                                }
+
+                                for (int j = 1; ;j++) {
+                                        if (j > counts[i]) {
+                                                break;
+                                        }
+                                        values[i] = values[i] + 1; // can't handle values[i]++ yet
+                                }
+                        }
+		}
+
+                public static int ArrayGet (int[] array, int index) {
                         int result = array[index];
                         return result;
 		}
 
+                public static void ArraySet (int[] array, int index, int value) {
+                        array[index] = value;
+		}
+
 		[Test]
-		public void TestArrayAccess1 () {
+		public void TestBreakLoop1 () {
+                        int[] array = new int[5];
+                        int[] counts = new int[] { 3, 2, 4, 5, 1 };
+                        InstalledRuntimeCode irc = CompileCode("BreakLoop1");
+                        runtimeInfo.ExecuteInstalledMethod (irc, array, counts, 3);
+			Assert.AreEqual (0, array[0]);
+			Assert.AreEqual (2, array[1]);
+			Assert.AreEqual (4, array[2]);
+			Assert.AreEqual (0, array[3]);
+			Assert.AreEqual (1, array[4]);
+                }
+
+		[Test]
+		public void TestArrayGet1 () {
                         int[] array = new int[]{4937, 5443, 6673, 7561};
-                        InstalledRuntimeCode irc = CompileCode("ArrayAccess1");
+                        InstalledRuntimeCode irc = CompileCode("ArrayGet");
                         int result = (int) runtimeInfo.ExecuteInstalledMethod (irc, array, 2);
 			Assert.AreEqual (6673, result);
+                }
+
+		[Test]
+		public void TestArraySet1 () {
+                        int[] array = new int[]{4937, 5443, 6673};
+                        InstalledRuntimeCode irc = CompileCode("ArraySet");
+                        runtimeInfo.ExecuteInstalledMethod (irc, array, 1, 7561);
+			Assert.AreEqual (7561, array[1]);
                 }
 
 		[Test]

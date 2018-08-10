@@ -357,8 +357,9 @@ namespace Mono.Compiler.BigStep {
 					operands.Add (tempOds[i]);
 				}
 
-				// 1.3) results not pushed back to stack, but stored somewhere else (args, locals, etc.)
-				switch (opcode) 
+				// 1.3) result: some results are pushed back to stack, some stored 
+                                //      somewhere else (args, locals), some not stored anywhere (PC)
+                                switch (opcode) 
                                 {
 				        case Opcode.Br:
 					case Opcode.BrS:
@@ -409,11 +410,29 @@ namespace Mono.Compiler.BigStep {
 						opParam = iter.DecodeParamI ();
 						operands.Add (args[opParam]);
 						break; 
+                                        case Opcode.LdelemI:
+                                        case Opcode.LdelemI1:
+                                        case Opcode.LdelemI2:
                                         case Opcode.LdelemI4:
+                                        case Opcode.LdelemI8:
+                                        case Opcode.LdelemR4:
+                                        case Opcode.LdelemR8:
+                                        case Opcode.LdelemU1:
+                                        case Opcode.LdelemU2:
+                                        case Opcode.LdelemRef:
                                                 // Assumption: the first operand is an array. CLR should guarantee this.
-                                                Type t = tempOds[0].Type.AsSystemType;
-                                                t = t.GetElementType();
-				                output = new TempOperand (this, RuntimeInformation.ClrTypeFromType(t));
+                                                output = ToTempWithElementClrType (tempOds[0]);
+                                                break;
+                                        case Opcode.StelemI:
+                                        case Opcode.StelemI1:
+                                        case Opcode.StelemI2:
+                                        case Opcode.StelemI4:
+                                        case Opcode.StelemI8:
+                                        case Opcode.StelemR4:
+                                        case Opcode.StelemR8:
+                                        case Opcode.StelemRef:
+                                                // Assumption: the first operand is an array. CLR should guarantee this.
+                                                output = ToTempWithElementClrType (tempOds[0]);
                                                 break;
 				        case Opcode.Ldsfld:
 				                int token = iter.DecodeParamI ();
@@ -438,11 +457,19 @@ namespace Mono.Compiler.BigStep {
                                         }
                                 }
 
-				// 2) Determine the result type for values to push into stack
-				TempOperand tod = null;
+				// 2) Determine the result type for the value to push into stack, but whether the 
+                                //    value will be actually pushed depends on PushBehavior that we will check later.
+				TempOperand tod = null; // this is equivalent to the right-side operand in a register-based instruction
 				if (output != null) 
                                 {
-					tod = new TempOperand (this, output.Type);
+                                        if (output.OperandType == OperandType.Temp) 
+                                        {
+                                                tod = (TempOperand)output;
+                                        }
+                                        else
+                                        {
+					        tod = new TempOperand (this, output.Type);
+                                        }
 				} 
                                 else 
                                 {
@@ -457,11 +484,6 @@ namespace Mono.Compiler.BigStep {
 				PushBehavior pushbhv = iter.PushBehavior;
                                 switch (pushbhv) {
 					case PushBehavior.Push0:
-                                                if (tod != null) 
-                                                {
-                                                        throw new InvalidOperationException (
-                                                                $"Unexpected: a value is generated but should not be pushed to stack. OP: { opcode }");
-                                                }
                                                 break;
 					case PushBehavior.Push1:
 					case PushBehavior.Pushi:
@@ -500,5 +522,12 @@ namespace Mono.Compiler.BigStep {
 				index++;
 			}
 		}
+
+                /// Produce a new temp operand with its type being the element type of the given argument's
+                private TempOperand ToTempWithElementClrType (TempOperand to){
+                        Type typ = to.Type.AsSystemType;
+                        typ = typ.GetElementType();
+                        return new TempOperand (this, RuntimeInformation.ClrTypeFromType(typ));
+                }
 	}
 }

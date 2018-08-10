@@ -40,6 +40,9 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 	public class BitCodeEmitter : IOperationProcessor {
 		private static readonly LLVMBool Success = new LLVMBool (0);
 		private static readonly LLVMBool True = new LLVMBool (1);
+                private static readonly LLVMValueRef Const0 = LLVM.ConstInt (LLVM.Int32Type (), 0, false);
+                private static readonly LLVMValueRef Const1 = LLVM.ConstInt (LLVM.Int32Type (), 1, false);
+
 		private static readonly LLVMMCJITCompilerOptions s_options = new LLVMMCJITCompilerOptions { NoFramePointerElim = 0 };
 
 		private static int s_moduleSeq;
@@ -360,7 +363,7 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                 // tmp (array), tmp (index) => tmp
                                 InvokeOperation (op, exop, operands,
                                                         vm => {
-                                                                return GetIntArrayElement(operands[0].Type, 1, tempName, vm.Temp0, vm.Temp1);
+                                                                return GetIntArrayElement (operands[0].Type, 1, tempName, vm.Temp0, vm.Temp1);
                                                         });
                                 break;
                         case Opcode.LdelemI2:
@@ -368,9 +371,12 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                 // tmp (array), tmp (index) => tmp
                                 InvokeOperation (op, exop, operands,
                                                         vm => {
-                                                                return GetIntArrayElement(operands[0].Type, 2, tempName, vm.Temp0, vm.Temp1);
+                                                                return GetIntArrayElement (operands[0].Type, 2, tempName, vm.Temp0, vm.Temp1);
                                                         });
                                 break;
+                        case Opcode.LdelemI:
+                                // ASSUME native integer = 4 bytes, may need change
+                                // FALL THROUGH
                         case Opcode.LdelemI4:
                                 // load element from array
                                 // tmp (array), tmp (index) => tmp
@@ -384,7 +390,42 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                 // tmp (array), tmp (index) => tmp
                                 InvokeOperation (op, exop, operands,
                                                         vm => {
-                                                                return GetIntArrayElement(operands[0].Type, 8, tempName, vm.Temp0, vm.Temp1);
+                                                                return GetIntArrayElement (operands[0].Type, 8, tempName, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.StelemI1:
+                                // store element into array
+                                // tmp (array), tmp (index), tmp (value) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                SetIntArrayElement (operands[0].Type, 1, vm.Temp2, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.StelemI2:
+                                // store element into array
+                                // tmp (array), tmp (index), tmp (value) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                SetIntArrayElement (operands[0].Type, 2, vm.Temp2, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.StelemI:
+                                // ASSUME native integer = 4 bytes, may need change
+                                // FALL THROUGH
+                        case Opcode.StelemI4:
+                                // store element into array
+                                // tmp (array), tmp (index), tmp (value) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                SetIntArrayElement (operands[0].Type, 4, vm.Temp2, vm.Temp0, vm.Temp1);
+                                                        });
+                                break;
+                        case Opcode.StelemI8:
+                                // store element into array
+                                // tmp (array), tmp (index), tmp (value) => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                SetIntArrayElement (operands[0].Type, 8, vm.Temp2, vm.Temp0, vm.Temp1);
                                                         });
                                 break;
                         case Opcode.Ldsfld:
@@ -449,6 +490,24 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                                                 return new NamedTempValue (tmp, tempName);
                                                         });
                                 break;
+                        case Opcode.Rem:
+                                // modulo, signed
+                                // tmp, tmp => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                LLVMValueRef tmp = LLVM.BuildSRem (builder, vm.Temp0, vm.Temp1, tempName);
+                                                                return new NamedTempValue (tmp, tempName);
+                                                        });
+                                break;  
+                        case Opcode.RemUn:
+                                // modulo, unsigned
+                                // tmp, tmp => tmp
+                                InvokeOperation (op, exop, operands,
+                                                        vm => {
+                                                                LLVMValueRef tmp = LLVM.BuildURem (builder, vm.Temp0, vm.Temp1, tempName);
+                                                                return new NamedTempValue (tmp, tempName);
+                                                        });
+                                break;                    
                         case Opcode.Br:
                         case Opcode.BrS:
                                 LLVM.BuildBr(builder, this.GetBranchTarget (operands[0]));
@@ -459,10 +518,12 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                 // tmp, pc
                                 InvokeOperation (op, exop, operands,
                                                         vm => {
+                                                                // LLVM's conditional branch requires the 1st argument to be a boolean, but CIL 
+                                                                // may pop an integer. If so, convert that to a boolean (0 => false; others => true)
                                                                 LLVMBasicBlockRef bbTrue = this.GetBranchTarget (operands[1]);
                                                                 LLVMBasicBlockRef bbFalse = this.GetImplicitBranchTarget (pcIndex);
+                                                                LLVMValueRef res = LLVM.BuildICmp (builder, LLVMIntPredicate.LLVMIntEQ, vm.Temp0, Const1, NextTempName);
                                                                 LLVMValueRef tmp = LLVM.BuildCondBr (builder, vm.Temp0, bbTrue, bbFalse);
-                                                                return new NamedTempValue (tmp, tempName);
                                                         });
                                 break;
                         case Opcode.Brfalse:
@@ -471,10 +532,12 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                                 // tmp, pc
                                 InvokeOperation (op, exop, operands,
                                                         vm => {
+                                                                // LLVM's conditional branch requires the 1st argument to be a boolean, but CIL 
+                                                                // may pop an integer. If so, convert that to a boolean (0 => false; others => true)
                                                                 LLVMBasicBlockRef bbTrue = this.GetBranchTarget (operands[1]);
                                                                 LLVMBasicBlockRef bbFalse = this.GetImplicitBranchTarget (pcIndex);
-                                                                LLVMValueRef tmp = LLVM.BuildCondBr (builder, vm.Temp0, bbTrue, bbFalse);
-                                                                return new NamedTempValue (tmp, tempName);
+                                                                LLVMValueRef res = LLVM.BuildICmp (builder, LLVMIntPredicate.LLVMIntEQ, vm.Temp0, Const0, NextTempName);
+                                                                LLVMValueRef tmp = LLVM.BuildCondBr (builder, res, bbTrue, bbFalse);
                                                         });
                                 break;
                         case Opcode.Beq:
@@ -612,6 +675,10 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
 				get { return Values[1].Value; }
 			}
 
+			internal LLVMValueRef Temp2 {
+				get { return Values[2].Value; }
+			}
+
 			internal StorageTypedValue[] Values { get; private set; }
 
 			internal ValueMappings (int length)
@@ -666,11 +733,7 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                         ClrType arrayClrType, uint elementSize, string resultValueName, LLVMValueRef arrayBaseAddr, LLVMValueRef index) 
                 {
                         // Get array's base address
-                        // The trick is to treat the metadata also as array elements and use GEP to perform pointer arithmetics
-                        LLVMValueRef offset = LLVM.ConstInt(
-                                LLVM.Int32Type(), RuntimeInfo.GetArrayBaseOffset(arrayClrType) / elementSize, false);
-                        LLVMValueRef basePtr = LLVM.BuildGEP (
-                                builder, arrayBaseAddr, new LLVMValueRef[] { offset }, this.NextTempName);
+                        LLVMValueRef basePtr = GetArrayBaseAddress (arrayClrType, elementSize, arrayBaseAddr);
 
                         // Array access is translated to two LLVM operations: 
                         // (1) get element address 
@@ -678,9 +741,34 @@ namespace Mono.Compiler.BigStep.LLVMBackend {
                         // (2) get element data
                         //   %result = load i32, i32* %tmpPtr
                         LLVMValueRef tmpPtr = LLVM.BuildGEP (builder, basePtr, new LLVMValueRef[] { index }, this.NextTempName);
-                        //LLVM.ConstPtrToInt()
                         LLVMValueRef tmp = LLVM.BuildLoad (builder, tmpPtr, resultValueName);
                         return new NamedTempValue (tmp, resultValueName);
+                }
+
+                private void SetIntArrayElement(
+                        ClrType arrayClrType, uint elementSize, LLVMValueRef valueToSet, LLVMValueRef arrayBaseAddr, LLVMValueRef index) 
+                {
+                        // Get array's base address
+                        LLVMValueRef basePtr = GetArrayBaseAddress (arrayClrType, elementSize, arrayBaseAddr);
+
+                        // Array access is translated to two LLVM operations: 
+                        // (1) get element address 
+                        //   %tmpPtr = getelementptr i32, i32* %tmp0, i64 %tmp1
+                        // (2) set element data
+                        //   store i32, i32* %tmpPtr
+                        LLVMValueRef tmpPtr = LLVM.BuildGEP (builder, basePtr, new LLVMValueRef[] { index }, this.NextTempName);
+                        LLVMValueRef tmp = LLVM.BuildStore (builder, valueToSet, tmpPtr);
+                }
+
+                private LLVMValueRef GetArrayBaseAddress (ClrType arrayClrType, uint elementSize, LLVMValueRef arrayBaseAddr)
+                {
+                        // Get array's base address
+                        // The trick is to treat the metadata also as array elements and use GEP to perform pointer arithmetics
+                        LLVMValueRef offset = LLVM.ConstInt (
+                                LLVM.Int32Type(), RuntimeInfo.GetArrayBaseOffset(arrayClrType) / elementSize, false);
+                        LLVMValueRef basePtr = LLVM.BuildGEP (
+                                builder, arrayBaseAddr, new LLVMValueRef[] { offset }, this.NextTempName);  
+                        return basePtr;
                 }
 
                 private Tuple<LLVMValueRef, LLVMBasicBlockRef, LLVMBasicBlockRef> CompareAndJumpTo (

@@ -39,7 +39,7 @@ namespace Mono.Compiler.BigStep
 			try
 			{
 				BitCodeEmitter processor = new BitCodeEmitter (RuntimeInfo, methodInfo) {
-					//PrintDebugInfo = true,
+					// PrintDebugInfo = true,
 					VerifyGeneratedCode = true
 				};
 				CILSymbolicExecutor exec = new CILSymbolicExecutor (processor, RuntimeInfo, methodInfo);
