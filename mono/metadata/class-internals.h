@@ -36,16 +36,6 @@ typedef struct _MonoDynamicMethod MonoDynamicMethod;
  */
 #define MONO_PROP_DYNAMIC_CATTR 0x1000
 
-#ifdef ENABLE_ICALL_EXPORT
-#pragma GCC diagnostic ignored "-Wmissing-prototypes"
-#define ICALL_DECL_EXPORT MONO_API
-#define ICALL_EXPORT MONO_API
-#else
-#define ICALL_DECL_EXPORT
-/* Can't be static as icall.c defines icalls referenced by icall-tables.c */
-#define ICALL_EXPORT
-#endif
-
 typedef enum {
 #define WRAPPER(e,n) MONO_WRAPPER_ ## e,
 #include "wrapper-types.h"
@@ -885,6 +875,9 @@ mono_metadata_free_inflated_signature (MonoMethodSignature *sig);
 MonoMethodSignature*
 mono_inflate_generic_signature (MonoMethodSignature *sig, MonoGenericContext *context, MonoError *error);
 
+MonoClass*
+mono_generic_param_get_base_type (MonoClass *klass);
+
 typedef struct {
 	MonoImage *corlib;
 	MonoClass *object_class;
@@ -1012,6 +1005,8 @@ GENERATE_GET_CLASS_WITH_CACHE_DECL (variant)
 
 GENERATE_GET_CLASS_WITH_CACHE_DECL (appdomain_unloaded_exception)
 
+GENERATE_GET_CLASS_WITH_CACHE_DECL (valuetype)
+
 /* If you need a MonoType, use one of the mono_get_*_type () functions in class-inlines.h */
 extern MonoDefaults mono_defaults;
 
@@ -1071,6 +1066,22 @@ mono_register_jit_icall (gconstpointer func, const char *name, MonoMethodSignatu
 
 MonoJitICallInfo *
 mono_register_jit_icall_full (gconstpointer func, const char *name, MonoMethodSignature *sig, gboolean no_wrapper, const char *c_symbol);
+
+#ifdef __cplusplus
+template <typename T>
+inline MonoJitICallInfo *
+mono_register_jit_icall (T func, const char *name, MonoMethodSignature *sig, gboolean is_save)
+{
+	return mono_register_jit_icall ((gconstpointer)func, name, sig, is_save);
+}
+
+template <typename T>
+inline MonoJitICallInfo *
+mono_register_jit_icall_full (T func, const char *name, MonoMethodSignature *sig, gboolean no_wrapper, const char *c_symbol)
+{
+	return mono_register_jit_icall_full ((gconstpointer)func, name, sig, no_wrapper, c_symbol);
+}
+#endif // __cplusplus
 
 void
 mono_register_jit_icall_wrapper (MonoJitICallInfo *info, gconstpointer wrapper);
@@ -1183,6 +1194,8 @@ mono_class_alloc (MonoClass *klass, int size);
 gpointer
 mono_class_alloc0 (MonoClass *klass, int size);
 
+#define mono_class_alloc0(klass, size) (g_cast (mono_class_alloc0 ((klass), (size))))
+
 void
 mono_class_setup_interfaces (MonoClass *klass, MonoError *error);
 
@@ -1225,7 +1238,7 @@ void
 mono_unload_interface_id (MonoClass *klass);
 
 GPtrArray*
-mono_class_get_methods_by_name (MonoClass *klass, const char *name, guint32 bflags, gboolean ignore_case, gboolean allow_ctors, MonoError *error);
+mono_class_get_methods_by_name (MonoClass *klass, const char *name, guint32 bflags, guint32 mlisttype, gboolean allow_ctors, MonoError *error);
 
 char*
 mono_class_full_name (MonoClass *klass);

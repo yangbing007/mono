@@ -1,4 +1,5 @@
 ../../../external/corefx/src/CoreFx.Private.TestUtilities/src/System/AssertExtensions.cs
+../../../external/corefx/src/Common/tests/System/MockType.cs
 
 ../../../external/corefx/src/Common/tests/System/RandomExtensions.cs
 ../../../external/corefx/src/Common/tests/System/RandomDataGenerator.cs
@@ -12,6 +13,11 @@
 #../../../external/corefx/src/System.Globalization/tests/CompareInfo/*.cs:
 
 ../../../external/corefx/src/System.Reflection.Emit/tests/Utilities.cs
+
+../../../external/corefx/src/System.Reflection/tests/Common.cs
+
+../../../external/corefx/src/System.Reflection/tests/*.cs:AssemblyTests.cs,AssemblyNameTests.cs,EventInfoTests.cs,GetTypeTests.cs,MemberInfoTests.cs,MethodInfoTests.cs,ModuleTests.cs,TypeInfoTests.cs
+../../../external/corefx/src/System.Reflection.Extensions/tests/*.cs:RuntimeReflectionExtensionTestsWithQuirks.cs,RuntimeReflectionExtensionTests.cs
 
 #TODO: audit the commented out tests and fix or disable
 
@@ -149,6 +155,9 @@
 ../../../external/corefx/src/System.Runtime/tests/System/String.SplitTests.cs
 ../../../external/corefx/src/System.Runtime/tests/System/NullableTests.cs
 ../../../external/corefx/src/System.Runtime/tests/System/Reflection/BindingFlagsDoNotWrap.netcoreapp.cs
+../../../external/corefx/src/System.Runtime/tests/System/Reflection/MemberInfoTests.cs
+../../../external/corefx/src/System.Runtime/tests/System/Reflection/MemberInfoTests.netcoreapp.cs
+../../../external/corefx/src/System.Runtime/tests/System/Reflection/CustomAttribute_Named_Typed_ArgumentTests.cs
 ../../../external/corefx/src/System.Runtime/tests/System/Text/*.cs
 ../../../external/corefx/src/System.Runtime/tests/System/Runtime/CompilerServices/*.cs:RuntimeHelpersTests.netcoreapp.cs,ConditionalWeakTableTests.netcoreapp.cs,ConditionalWeakTableTests.cs
 
@@ -305,3 +314,12 @@
 ../../../external/corefx/src/System.Runtime/tests/System/IO/*.cs:FileLoadException.InteropTests.cs,DirectoryNotFoundException.InteropTests.cs,FileNotFoundException.InteropTests.cs
 ../../../external/corefx/src/System.Runtime/tests/System/Text/*.cs
 ../../../external/corefx/src/System.Runtime/tests/System/Threading/*.cs:WaitHandleTests.cs
+
+# System.Runtime.Extensions
+../../../external/corefx/src/System.Runtime.Extensions/tests/System/Math.cs
+../../../external/corefx/src/System.Runtime.Extensions/tests/System/MathF.netcoreapp.cs
+../../../external/corefx/src/System.Runtime.Extensions/tests/System/MathTests.netcoreapp.cs
+
+# System.Runtime.InteropServices
+../../../external/corefx/src/System.Runtime.InteropServices/tests/System/Runtime/CompilerServices/*.cs
+../../../external/corefx/src/System.Runtime.InteropServices/tests/System/Runtime/InteropServices/*.cs:MarshalTests.cs,GCHandleTests.cs,SafeBufferTests.cs,ComEventsHelperTests.cs,RuntimeEnvironmentTests.cs,DispatchWrapperTests.cs,ArrayWithOffsetTests.cs,SetWin32ContextInIDispatchAttributeTests.cs,ComAwareEventInfoTests.cs,IDispatchImplAttributeTests.cs,ComAwareEventInfoTests.Windows.cs,MarshalTests.Windows.cs

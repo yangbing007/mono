@@ -72,13 +72,20 @@ var MonoSupportLib = {
 			return this.mono_wasm_set_bp (assembly, method_token, il_offset)
 		},
 
+		mono_wasm_remove_breakpoint: function (breakpoint_id) {
+			if (!this.mono_wasm_del_bp)
+				this.mono_wasm_del_bp = Module.cwrap ('mono_wasm_remove_breakpoint', 'number', ['number']);
+
+			return this.mono_wasm_del_bp (breakpoint_id);
+		},
+
 		mono_load_runtime_and_bcl: function (vfs_prefix, deploy_prefix, enable_debugging, file_list, loaded_cb, fetch_file_cb) {
 			Module.FS_createPath ("/", vfs_prefix, true, true);
 
-			var pending = 0;
+			var pending = file_list.length;
 			var loaded_files = [];
+			var mono_wasm_add_assembly = Module.cwrap ('mono_wasm_add_assembly', null, ['string', 'number', 'number']);
 			file_list.forEach (function(file_name) {
-				++pending;
 				var fetch_promise = null;
 				if (fetch_file_cb)
 					fetch_promise = fetch_file_cb (deploy_prefix + "/" + file_name);
@@ -92,7 +99,11 @@ var MonoSupportLib = {
 					return response ['arrayBuffer'] ();
 				}).then (function (blob) {
 					var asm = new Uint8Array (blob);
-					Module.FS_createDataFile (vfs_prefix + "/" + file_name, null, asm, true, true, true);
+					var memory = Module._malloc(asm.length);
+					var heapBytes = new Uint8Array(Module.HEAPU8.buffer, memory, asm.length);
+					heapBytes.set (asm);
+					mono_wasm_add_assembly (file_name, memory, asm.length);
+
 					console.log ("Loaded: " + file_name);
 					--pending;
 					if (pending == 0) {

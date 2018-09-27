@@ -717,14 +717,14 @@ mono_array_new_va (MonoMethod *cm, ...)
 
 	va_start (ap, cm);
 	
-	lengths = (uintptr_t *)alloca (sizeof (uintptr_t) * pcount);
+	lengths = g_newa (uintptr_t, pcount);
 	for (i = 0; i < pcount; ++i)
 		lengths [i] = d = va_arg(ap, int);
 
 	if (rank == pcount) {
 		/* Only lengths provided. */
 		if (m_class_get_byval_arg (cm->klass)->type == MONO_TYPE_ARRAY) {
-			lower_bounds = (intptr_t *)alloca (sizeof (intptr_t) * rank);
+			lower_bounds = g_newa (intptr_t, rank);
 			memset (lower_bounds, 0, sizeof (intptr_t) * rank);
 		} else {
 			lower_bounds = NULL;
@@ -767,7 +767,7 @@ mono_array_new_1 (MonoMethod *cm, guint32 length)
 	g_assert (rank == pcount);
 
 	if (m_class_get_byval_arg (cm->klass)->type == MONO_TYPE_ARRAY) {
-		lower_bounds = (intptr_t *)alloca (sizeof (intptr_t) * rank);
+		lower_bounds = g_newa (intptr_t, rank);
 		memset (lower_bounds, 0, sizeof (intptr_t) * rank);
 	} else {
 		lower_bounds = NULL;
@@ -803,7 +803,7 @@ mono_array_new_2 (MonoMethod *cm, guint32 length1, guint32 length2)
 	g_assert (rank == pcount);
 
 	if (m_class_get_byval_arg (cm->klass)->type == MONO_TYPE_ARRAY) {
-		lower_bounds = (intptr_t *)alloca (sizeof (intptr_t) * rank);
+		lower_bounds = g_newa (intptr_t, rank);
 		memset (lower_bounds, 0, sizeof (intptr_t) * rank);
 	} else {
 		lower_bounds = NULL;
@@ -840,7 +840,7 @@ mono_array_new_3 (MonoMethod *cm, guint32 length1, guint32 length2, guint32 leng
 	g_assert (rank == pcount);
 
 	if (m_class_get_byval_arg (cm->klass)->type == MONO_TYPE_ARRAY) {
-		lower_bounds = (intptr_t *)alloca (sizeof (intptr_t) * rank);
+		lower_bounds = g_newa (intptr_t, rank);
 		memset (lower_bounds, 0, sizeof (intptr_t) * rank);
 	} else {
 		lower_bounds = NULL;
@@ -878,7 +878,7 @@ mono_array_new_4 (MonoMethod *cm, guint32 length1, guint32 length2, guint32 leng
 	g_assert (rank == pcount);
 
 	if (m_class_get_byval_arg (cm->klass)->type == MONO_TYPE_ARRAY) {
-		lower_bounds = (intptr_t *)alloca (sizeof (intptr_t) * rank);
+		lower_bounds = g_newa (intptr_t, rank);
 		memset (lower_bounds, 0, sizeof (intptr_t) * rank);
 	} else {
 		lower_bounds = NULL;
@@ -1254,7 +1254,7 @@ mono_object_castclass_unbox (MonoObject *obj, MonoClass *klass)
 	MonoClass *oklass;
 
 	if (mini_get_debug_options ()->better_cast_details) {
-		jit_tls = (MonoJitTlsData *)mono_tls_get_jit_tls ();
+		jit_tls = mono_tls_get_jit_tls ();
 		jit_tls->class_cast_from = NULL;
 	}
 
@@ -1288,7 +1288,7 @@ mono_object_castclass_with_cache (MonoObject *obj, MonoClass *klass, gpointer *c
 	gpointer cached_vtable, obj_vtable;
 
 	if (mini_get_debug_options ()->better_cast_details) {
-		jit_tls = (MonoJitTlsData *)mono_tls_get_jit_tls ();
+		jit_tls = mono_tls_get_jit_tls ();
 		jit_tls->class_cast_from = NULL;
 	}
 
@@ -1359,6 +1359,11 @@ mono_get_native_calli_wrapper (MonoImage *image, MonoMethodSignature *sig, gpoin
 	memset (&piinfo, 0, sizeof (piinfo));
 
 	m = mono_marshal_get_native_func_wrapper (image, sig, &piinfo, mspecs, func);
+
+	for (int i = sig->param_count; i >= 0; i--)
+		if (mspecs [i])
+			mono_metadata_free_marshal_spec (mspecs [i]);
+	g_free (mspecs);
 
 	gpointer compiled_ptr = mono_compile_method_checked (m, error);
 	mono_error_set_pending_exception (error);
@@ -1572,7 +1577,7 @@ static gpointer
 resolve_iface_call (MonoObject *this_obj, int imt_slot, MonoMethod *imt_method, gpointer *out_arg, gboolean caller_gsharedvt, MonoError *error)
 {
 	MonoVTable *vt;
-	gpointer *imt, *vtable_slot;
+	gpointer *imt;
 	MonoMethod *impl_method, *generic_virtual = NULL, *variant_iface = NULL;
 	gpointer addr, compiled_method, aot_addr;
 	gboolean need_rgctx_tramp = FALSE, need_unbox_tramp = FALSE;
@@ -1585,7 +1590,7 @@ resolve_iface_call (MonoObject *this_obj, int imt_slot, MonoMethod *imt_method, 
 	vt = this_obj->vtable;
 	imt = (gpointer*)vt - MONO_IMT_SIZE;
 
-	vtable_slot = mini_resolve_imt_method (vt, imt + imt_slot, imt_method, &impl_method, &aot_addr, &need_rgctx_tramp, &variant_iface, error);
+	mini_resolve_imt_method (vt, imt + imt_slot, imt_method, &impl_method, &aot_addr, &need_rgctx_tramp, &variant_iface, error);
 	return_val_if_nok (error, NULL);
 
 	// FIXME: This can throw exceptions
@@ -1910,7 +1915,7 @@ mono_llvmonly_init_delegate (MonoDelegate *del)
 
 		ftndesc = mini_create_llvmonly_ftndesc (mono_domain_get (), addr, arg);
 		mono_memory_barrier ();
-		*del->method_code = (gpointer)ftndesc;
+		*del->method_code = (guint8*)ftndesc;
 	}
 	del->method_ptr = ftndesc->addr;
 	del->extra_arg = ftndesc->arg;

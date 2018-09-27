@@ -11,6 +11,7 @@
 #ifndef __MONO_THREADS_H__
 #define __MONO_THREADS_H__
 
+#include <mono/utils/mono-forward-internal.h>
 #include <mono/utils/mono-os-semaphore.h>
 #include <mono/utils/mono-stack-unwinding.h>
 #include <mono/utils/mono-linked-list-set.h>
@@ -153,8 +154,6 @@ enum {
 	ASYNC_SUSPEND_STATE_INDEX = 1,
 };
 
-typedef struct _MonoThreadInfoInterruptToken MonoThreadInfoInterruptToken;
-
 /*
  * These flags control how the rest of the runtime will see and interact with
  * a thread.
@@ -176,6 +175,10 @@ typedef enum {
 	 */
 	MONO_THREAD_INFO_FLAGS_NO_SAMPLE = 2,
 } MonoThreadInfoFlags;
+
+G_ENUM_FUNCTIONS (MonoThreadInfoFlags)
+
+typedef struct _MonoThreadInfoInterruptToken MonoThreadInfoInterruptToken;
 
 typedef struct _MonoThreadInfo {
 	MonoLinkedListSetNode node;
@@ -244,12 +247,12 @@ typedef struct _MonoThreadInfo {
 	/* Set when the thread is started, or in _wapi_thread_duplicate () */
 	MonoThreadHandle *handle;
 
-	void *jit_data;
+	MonoJitTlsData *jit_data;
 
 	MonoThreadInfoInterruptToken *interrupt_token;
 
 	/* HandleStack for coop handles */
-	gpointer handle_stack;
+	MonoHandleStack *handle_stack;
 
 	/* Stack mark for targets that explicitly require one */
 	gpointer stack_mark;
@@ -365,6 +368,8 @@ mono_thread_info_set_tid (THREAD_INFO_TYPE *info, MonoNativeThreadId tid)
 	((MonoThreadInfo*) info)->node.key = (uintptr_t) MONO_NATIVE_THREAD_ID_TO_UINT (tid);
 }
 
+void
+mono_thread_info_cleanup (void);
 
 /*
  * @thread_info_size is sizeof (GcThreadInfo), a struct the GC defines to make it possible to have
@@ -412,6 +417,9 @@ mono_thread_info_unset_internal_thread_gchandle (THREAD_INFO_TYPE *info);
 gboolean
 mono_thread_info_is_exiting (void);
 
+#ifdef HOST_WIN32
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
+#endif
 THREAD_INFO_TYPE *
 mono_thread_info_current (void);
 
@@ -503,11 +511,12 @@ mono_thread_info_is_interrupt_state (THREAD_INFO_TYPE *info);
 void
 mono_thread_info_describe_interrupt_token (THREAD_INFO_TYPE *info, GString *text);
 
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
 gboolean
 mono_thread_info_is_live (THREAD_INFO_TYPE *info);
 
 int
-ves_icall_System_Threading_Thread_SystemMaxStackSize (MonoError *error);
+mono_thread_info_get_system_max_stack_size (void);
 
 MonoThreadHandle*
 mono_threads_open_thread_handle (MonoThreadHandle *handle);
@@ -591,8 +600,21 @@ mono_native_thread_id_get (void);
 MONO_API gboolean
 mono_native_thread_id_equals (MonoNativeThreadId id1, MonoNativeThreadId id2);
 
+//FIXMEcxx typedef mono_native_thread_return_t (MONO_STDCALL * MonoNativeThreadStart)(void*);
+// mono_native_thread_return_t func
+// and remove the template
+
 MONO_API gboolean
 mono_native_thread_create (MonoNativeThreadId *tid, gpointer func, gpointer arg);
+
+#ifdef __cplusplus
+template <typename T>
+inline gboolean
+mono_native_thread_create (MonoNativeThreadId *tid, T func, gpointer arg)
+{
+	return  mono_native_thread_create (tid, (gpointer)func, arg);
+}
+#endif
 
 MONO_API void
 mono_native_thread_set_name (MonoNativeThreadId tid, const char *name);
@@ -669,7 +691,9 @@ gboolean mono_threads_transition_finish_async_suspend (THREAD_INFO_TYPE* info);
 MonoDoBlockingResult mono_threads_transition_do_blocking (THREAD_INFO_TYPE* info, const char* func);
 MonoDoneBlockingResult mono_threads_transition_done_blocking (THREAD_INFO_TYPE* info, const char* func);
 MonoAbortBlockingResult mono_threads_transition_abort_blocking (THREAD_INFO_TYPE* info, const char* func);
+gboolean mono_threads_transition_peek_blocking_suspend_requested (THREAD_INFO_TYPE* info);
 
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
 MonoThreadUnwindState* mono_thread_info_get_suspend_state (THREAD_INFO_TYPE *info);
 
 gpointer
@@ -678,15 +702,49 @@ mono_threads_enter_gc_unsafe_region_cookie (void);
 
 void mono_thread_info_wait_for_resume (THREAD_INFO_TYPE *info);
 /* Advanced suspend API, used for suspending multiple threads as once. */
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
 gboolean mono_thread_info_is_running (THREAD_INFO_TYPE *info);
 gboolean mono_thread_info_is_live (THREAD_INFO_TYPE *info);
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
 int mono_thread_info_suspend_count (THREAD_INFO_TYPE *info);
 int mono_thread_info_current_state (THREAD_INFO_TYPE *info);
 const char* mono_thread_state_name (int state);
 gboolean mono_thread_is_gc_unsafe_mode (void);
 
+/* Suspend phases:
+ *
+ * In a full coop or full preemptive suspend, there is only a single phase.  In
+ * the initial phase, all threads are either cooperatively or preemptively
+ * suspended, respectively.
+ *
+ * In hybrid suspend, there may be two phases.  In the initial phase, threads
+ * are invited to cooperatively suspend.  Running threads are expected to
+ * finish cooperatively suspending (the phase waits for them), but blocking
+ * threads need not.
+ *
+ * If any blocking thread was encountered in the initial phase, a second
+ * "mop-up" phase runs which checks whether the blocking threads self-suspended
+ * (in which case nothing more needs to be done) or if they're still in the
+ * BLOCKING_SUSPEND_REQUESTED state, in which case they are preemptively
+ * suspended.
+ */
+#define MONO_THREAD_SUSPEND_PHASE_INITIAL (0)
+#define MONO_THREAD_SUSPEND_PHASE_MOPUP (1)
+// number of phases
+#define MONO_THREAD_SUSPEND_PHASE_COUNT (2)
+typedef int MonoThreadSuspendPhase;
+
+typedef enum {
+	MONO_THREAD_BEGIN_SUSPEND_SKIP = 0,
+	MONO_THREAD_BEGIN_SUSPEND_SUSPENDED = 1,
+	MONO_THREAD_BEGIN_SUSPEND_NEXT_PHASE = 2,
+} MonoThreadBeginSuspendResult;
+
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
 gboolean mono_thread_info_in_critical_location (THREAD_INFO_TYPE *info);
-gboolean mono_thread_info_begin_suspend (THREAD_INFO_TYPE *info);
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
+MonoThreadBeginSuspendResult mono_thread_info_begin_suspend (THREAD_INFO_TYPE *info, MonoThreadSuspendPhase phase);
+G_EXTERN_C // due to THREAD_INFO_TYPE varying
 gboolean mono_thread_info_begin_resume (THREAD_INFO_TYPE *info);
 
 void mono_threads_add_to_pending_operation_set (THREAD_INFO_TYPE* info); //XXX rename to something to reflect the fact that this is used for both suspend and resume

@@ -129,7 +129,7 @@ emit_memcpy (guint8 *code, int size, int dreg, int doffset, int sreg, int soffse
 {
 	/* unrolled, use the counter in big */
 	if (size > sizeof (gpointer) * 5) {
-		long shifted = size / SIZEOF_VOID_P;
+		long shifted = size / TARGET_SIZEOF_VOID_P;
 		guint8 *copy_loop_start, *copy_loop_jump;
 
 		ppc_load (code, ppc_r0, shifted);
@@ -322,7 +322,7 @@ mono_ppc_is_direct_call_sequence (guint32 *code)
 
 #define MAX_ARCH_DELEGATE_PARAMS 7
 
-static gpointer
+static guint8*
 get_delegate_invoke_impl (MonoTrampInfo **info, gboolean has_target, guint32 param_count, gboolean aot)
 {
 	guint8 *code, *start;
@@ -849,7 +849,7 @@ typedef struct {
 				in one word, otherwise it's 0*/
 } ArgInfo;
 
-typedef struct {
+struct CallInfo {
 	int nargs;
 	guint32 stack_usage;
 	guint32 struct_ret;
@@ -858,7 +858,7 @@ typedef struct {
 	gboolean vtype_retaddr;
 	int vret_arg_index;
 	ArgInfo args [1];
-} CallInfo;
+};
 
 #define DEBUG(a)
 
@@ -1789,7 +1789,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 				soffset += sizeof (gpointer);
 			}
 		if (ovf_size != 0)
-			mini_emit_memcpy (cfg, ppc_r1, doffset + soffset, src->dreg, soffset, ovf_size * sizeof (gpointer), SIZEOF_VOID_P);
+			mini_emit_memcpy (cfg, ppc_r1, doffset + soffset, src->dreg, soffset, ovf_size * sizeof (gpointer), TARGET_SIZEOF_VOID_P);
 	} else if (ainfo->regtype == RegTypeFPStructByVal) {
 		soffset = 0;
 		for (i = 0; i < ainfo->vtregs; ++i) {
@@ -1804,7 +1804,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 			soffset += ainfo->size;
 			}
 		if (ovf_size != 0)
-			mini_emit_memcpy (cfg, ppc_r1, doffset + soffset, src->dreg, soffset, ovf_size * sizeof (gpointer), SIZEOF_VOID_P);
+			mini_emit_memcpy (cfg, ppc_r1, doffset + soffset, src->dreg, soffset, ovf_size * sizeof (gpointer), TARGET_SIZEOF_VOID_P);
 	} else if (ainfo->regtype == RegTypeFP) {
 		int tmpr = mono_alloc_freg (cfg);
 		if (ainfo->size == 4)
@@ -1830,7 +1830,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 			g_assert (ovf_size > 0);
 
 		EMIT_NEW_VARLOADA (cfg, load, vtcopy, vtcopy->inst_vtype);
-		mini_emit_memcpy (cfg, load->dreg, 0, src->dreg, 0, size, SIZEOF_VOID_P);
+		mini_emit_memcpy (cfg, load->dreg, 0, src->dreg, 0, size, TARGET_SIZEOF_VOID_P);
 
 		if (ainfo->offset)
 			MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, ppc_r1, ainfo->offset, load->dreg);
@@ -5299,7 +5299,7 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 	}
 
 	if (tracing)
-		code = mono_arch_instrument_prolog (cfg, mono_trace_enter_method, code, TRUE);
+		code = (guint8*)mono_arch_instrument_prolog (cfg, mono_trace_enter_method, code, TRUE);
 
 	set_code_cursor (cfg, code);
 	g_free (cinfo);
@@ -5324,7 +5324,7 @@ mono_arch_emit_epilog (MonoCompile *cfg)
 	code = realloc_code (cfg, max_epilog_size);
 
 	if (mono_jit_trace_calls != NULL && mono_trace_eval (method)) {
-		code = mono_arch_instrument_epilog (cfg, mono_trace_leave_method, code, TRUE);
+		code = (guint8*)mono_arch_instrument_epilog (cfg, mono_trace_leave_method, code, TRUE);
 	}
 	pos = 0;
 
@@ -5965,7 +5965,7 @@ mono_arch_skip_single_step (MonoContext *ctx)
  *
  *   See mini-amd64.c for docs.
  */
-gpointer
+SeqPointInfo*
 mono_arch_get_seq_point_info (MonoDomain *domain, guint8 *code)
 {
 	NOT_IMPLEMENTED;

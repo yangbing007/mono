@@ -87,13 +87,21 @@ typedef struct _MonoAssemblyName MonoAssemblyName;
 
 //JS funcs
 extern MonoObject* mono_wasm_invoke_js_with_args (int js_handle, MonoString *method, MonoArray *args, int *is_exception);
+extern MonoObject* mono_wasm_get_object_property (int js_handle, MonoString *method, int *is_exception);
+extern MonoObject* mono_wasm_set_object_property (int js_handle, MonoString *method, MonoObject *value, int createIfNotExist, int hasOwnProperty, int *is_exception);
+extern MonoObject* mono_wasm_get_global_object (MonoString *globalName, int *is_exception);
 
 // Blazor specific custom routines - see dotnet_support.js for backing code
 extern void* mono_wasm_invoke_js_marshalled (MonoString **exceptionMessage, void *asyncHandleLongPtr, MonoString *funcName, MonoString *argsJson);
 extern void* mono_wasm_invoke_js_unmarshalled (MonoString **exceptionMessage, MonoString *funcName, void* arg0, void* arg1, void* arg2);
-
+void mono_aot_register_module (void **aot_info);
 void mono_jit_set_aot_mode (MonoAotMode mode);
 MonoDomain*  mono_jit_init_version (const char *root_domain_name, const char *runtime_version);
+void mono_ee_interp_init (const char *opts);
+void mono_marshal_ilgen_init (void);
+void mono_method_builder_ilgen_init (void);
+void mono_sgen_mono_ilgen_init (void);
+void mono_icall_table_init (void);
 MonoAssembly* mono_assembly_open (const char *filename, MonoImageOpenStatus *status);
 int mono_jit_exec (MonoDomain *domain, MonoAssembly *assembly, int argc, char *argv[]);
 void mono_set_assemblies_path (const char* path);
@@ -119,7 +127,6 @@ MonoAssembly* mono_assembly_load (MonoAssemblyName *aname, const char *basedir, 
 MonoAssemblyName* mono_assembly_name_new (const char *name);
 void mono_assembly_name_free (MonoAssemblyName *aname);
 const char* mono_image_get_name (MonoImage *image);
-const char* mono_class_get_name (MonoClass *klass);
 MonoString* mono_string_new (MonoDomain *domain, const char *text);
 void mono_add_internal_call (const char *name, const void* method);
 MonoString * mono_string_from_utf16 (char *data);
@@ -130,7 +137,16 @@ MonoClass* mono_get_object_class (void);
 int mono_class_is_delegate (MonoClass* klass);
 const char* mono_class_get_name (MonoClass *klass);
 const char* mono_class_get_namespace (MonoClass *klass);
-
+MonoClass* mono_get_byte_class (void);
+MonoClass* mono_get_sbyte_class (void);
+MonoClass* mono_get_int16_class (void);
+MonoClass* mono_get_uint16_class (void);
+MonoClass* mono_get_int32_class (void);
+MonoClass* mono_get_uint32_class (void);
+MonoClass* mono_get_single_class (void);
+MonoClass* mono_get_double_class (void);
+MonoClass* mono_class_get_element_class(MonoClass *klass);
+int mono_regression_test_step (int verbose_level, char *image, char *method_name);
 
 
 #define mono_array_get(array,type,index) ( *(type*)mono_array_addr ((array), type, (index)) ) 
@@ -145,7 +161,16 @@ const char* mono_class_get_namespace (MonoClass *klass);
 
 char* mono_array_addr_with_size (MonoArray *array, int size, int idx);
 int mono_array_length (MonoArray *array);
+int mono_array_element_size(MonoClass *klass);
 void mono_gc_wbarrier_set_arrayref  (MonoArray *arr, void* slot_ptr, MonoObject* value);
+
+typedef struct {
+	const char *name;
+	const unsigned char *data;
+	unsigned int size;
+} MonoBundledAssembly;
+
+void mono_register_bundled_assemblies (const MonoBundledAssembly **assemblies);
 
 static char*
 m_strdup (const char *str)
@@ -197,19 +222,77 @@ mono_wasm_invoke_js (MonoString *str, int *is_exception)
 	return res;
 }
 
+#ifdef ENABLE_AOT
+#include "driver-gen.c"
+#endif
+
+typedef struct WasmAssembly_ WasmAssembly;
+
+struct WasmAssembly_ {
+	MonoBundledAssembly assembly;
+	WasmAssembly *next;
+};
+
+static WasmAssembly *assemblies;
+static int assembly_count;
+
+EMSCRIPTEN_KEEPALIVE void
+mono_wasm_add_assembly (const char *name, const unsigned char *data, unsigned int size)
+{
+	WasmAssembly *entry = (WasmAssembly *)malloc(sizeof (MonoBundledAssembly));
+	entry->assembly.name = m_strdup (name);
+	entry->assembly.data = data;
+	entry->assembly.size = size;
+	entry->next = assemblies;
+	assemblies = entry;
+	++assembly_count;
+}
+
 EMSCRIPTEN_KEEPALIVE void
 mono_wasm_load_runtime (const char *managed_path, int enable_debugging)
 {
 	monoeg_g_setenv ("MONO_LOG_LEVEL", "debug", 1);
 	monoeg_g_setenv ("MONO_LOG_MASK", "gc", 1);
+
+#ifdef ENABLE_AOT
+	// Defined in driver-gen.c
+	register_aot_modules ();
+	mono_jit_set_aot_mode (MONO_AOT_MODE_LLVMONLY);
+#else
 	mono_jit_set_aot_mode (MONO_AOT_MODE_INTERP_LLVMONLY);
 	if (enable_debugging)
 		mono_wasm_enable_debugging ();
+#endif
+
+#ifndef ENABLE_AOT
+	mono_ee_interp_init ("");
+	mono_marshal_ilgen_init ();
+	mono_method_builder_ilgen_init ();
+	mono_sgen_mono_ilgen_init ();
+#endif
+	mono_icall_table_init ();
+
+	if (assembly_count) {
+		MonoBundledAssembly **bundle_array = (MonoBundledAssembly **)calloc (1, sizeof (MonoBundledAssembly*) * (assembly_count + 1));
+		WasmAssembly *cur = assemblies;
+		bundle_array [assembly_count] = NULL;
+		int i = 0;
+		while (cur) {
+			bundle_array [i] = &cur->assembly;
+			cur = cur->next;
+			++i;
+		}
+		mono_register_bundled_assemblies ((const MonoBundledAssembly**)bundle_array);
+	}
+
 	mono_set_assemblies_path (m_strdup (managed_path));
 	root_domain = mono_jit_init_version ("mono", "v4.0.30319");
 
 	mono_add_internal_call ("WebAssembly.Runtime::InvokeJS", mono_wasm_invoke_js);
 	mono_add_internal_call ("WebAssembly.Runtime::InvokeJSWithArgs", mono_wasm_invoke_js_with_args);
+	mono_add_internal_call ("WebAssembly.Runtime::GetObjectProperty", mono_wasm_get_object_property);
+	mono_add_internal_call ("WebAssembly.Runtime::SetObjectProperty", mono_wasm_set_object_property);
+	mono_add_internal_call ("WebAssembly.Runtime::GetGlobalObject", mono_wasm_get_global_object);
 
 	// Blazor specific custom routines - see dotnet_support.js for backing code		
 	mono_add_internal_call ("WebAssembly.JSInterop.InternalCalls::InvokeJSMarshalled", mono_wasm_invoke_js_marshalled);
@@ -276,6 +359,16 @@ mono_wasm_string_from_js (const char *str)
 }
 
 
+static int
+class_is_task (MonoClass *klass)
+{
+	if (!strcmp ("System.Threading.Tasks", mono_class_get_namespace (klass)) && 
+		(!strcmp ("Task", mono_class_get_name (klass)) || !strcmp ("Task`1", mono_class_get_name (klass))))
+		return 1;
+
+	return 0;
+}
+
 #define MARSHAL_TYPE_INT 1
 #define MARSHAL_TYPE_FP 2
 #define MARSHAL_TYPE_STRING 3
@@ -284,6 +377,16 @@ mono_wasm_string_from_js (const char *str)
 #define MARSHAL_TYPE_TASK 6
 #define MARSHAL_TYPE_OBJECT 7
 #define MARSHAL_TYPE_BOOL 8
+
+// typed array marshalling
+#define MARSHAL_ARRAY_BYTE 11
+#define MARSHAL_ARRAY_UBYTE 12
+#define MARSHAL_ARRAY_SHORT 13
+#define MARSHAL_ARRAY_USHORT 14
+#define MARSHAL_ARRAY_INT 15
+#define MARSHAL_ARRAY_UINT 16
+#define MARSHAL_ARRAY_FLOAT 17
+#define MARSHAL_ARRAY_DOUBLE 18
 
 EMSCRIPTEN_KEEPALIVE int
 mono_wasm_get_obj_type (MonoObject *obj)
@@ -311,13 +414,39 @@ mono_wasm_get_obj_type (MonoObject *obj)
 		return MARSHAL_TYPE_FP;
 	case MONO_TYPE_STRING:
 		return MARSHAL_TYPE_STRING;
+	case MONO_TYPE_SZARRAY:  { // simple zero based one-dim-array
+		MonoClass *eklass = mono_class_get_element_class(klass);
+		MonoType *etype = mono_class_get_type (eklass);
+
+		switch (mono_type_get_type (etype)) {
+			case MONO_TYPE_U1:
+				return MARSHAL_ARRAY_UBYTE;
+			case MONO_TYPE_I1:
+				return MARSHAL_ARRAY_BYTE;
+			case MONO_TYPE_U2:
+				return MARSHAL_ARRAY_USHORT;			
+			case MONO_TYPE_I2:
+				return MARSHAL_ARRAY_SHORT;			
+			case MONO_TYPE_U4:
+				return MARSHAL_ARRAY_UINT;			
+			case MONO_TYPE_I4:
+				return MARSHAL_ARRAY_INT;			
+			case MONO_TYPE_R4:
+				return MARSHAL_ARRAY_FLOAT;
+			case MONO_TYPE_R8:
+				return MARSHAL_ARRAY_DOUBLE;
+			default:
+				return MARSHAL_TYPE_OBJECT;
+		}		
+	}
 	default:
 		if (!mono_type_is_reference (type)) //vt
 			return MARSHAL_TYPE_VT;
 		if (mono_class_is_delegate (klass))
 			return MARSHAL_TYPE_DELEGATE;
-		if (!strcmp ("System.Threading.Tasks", mono_class_get_namespace (klass)) && (!strcmp ("Task", mono_class_get_name (klass)) || !strcmp ("Task`1", mono_class_get_name (klass))))
+		if (class_is_task(klass))
 			return MARSHAL_TYPE_TASK;
+
 		return MARSHAL_TYPE_OBJECT;
 	}
 }
@@ -395,4 +524,73 @@ EMSCRIPTEN_KEEPALIVE void
 mono_wasm_obj_array_set (MonoArray *array, int idx, MonoObject *obj)
 {
 	mono_array_setref (array, idx, obj);
+}
+
+// Int8Array 		| int8_t	| byte or SByte (signed byte)
+// Uint8Array		| uint8_t	| byte or Byte (unsigned byte)
+// Uint8ClampedArray| uint8_t	| byte or Byte (unsigned byte)
+// Int16Array		| int16_t	| short (signed short)
+// Uint16Array		| uint16_t	| ushort (unsigned short)
+// Int32Array		| int32_t	| int (signed integer)
+// Uint32Array		| uint32_t	| uint (unsigned integer)
+// Float32Array		| float		| float
+// Float64Array		| double	| double
+
+EMSCRIPTEN_KEEPALIVE MonoArray*
+mono_wasm_typed_array_new (char *arr, int length, int size, int type)
+{
+	MonoClass *typeClass = mono_get_byte_class(); // default is Byte
+	switch (type) {
+	case MARSHAL_ARRAY_BYTE:
+		typeClass = mono_get_sbyte_class();
+		break;
+	case MARSHAL_ARRAY_SHORT:
+		typeClass = mono_get_int16_class();
+		break;
+	case MARSHAL_ARRAY_USHORT:
+		typeClass = mono_get_uint16_class();
+		break;
+	case MARSHAL_ARRAY_INT:
+		typeClass = mono_get_int32_class();
+		break;
+	case MARSHAL_ARRAY_UINT:
+		typeClass = mono_get_uint32_class();
+		break;
+	case MARSHAL_ARRAY_FLOAT:
+		typeClass = mono_get_single_class();
+		break;
+	case MARSHAL_ARRAY_DOUBLE:
+		typeClass = mono_get_double_class();
+		break;
+	}
+
+	MonoArray *buffer;
+
+	buffer = mono_array_new (root_domain, typeClass, length);
+	memcpy(mono_array_addr_with_size(buffer, sizeof(char), 0), arr, length * size);
+
+	return buffer;
+}
+
+
+EMSCRIPTEN_KEEPALIVE void
+mono_wasm_array_to_heap (MonoArray *src, char *dest)
+{
+	int element_size;
+	void *source_addr;
+	int arr_length;
+
+	element_size = mono_array_element_size ( mono_object_get_class((MonoObject*)src));
+	//DBG("mono_wasm_to_heap element size %i  / length %i\n",element_size, mono_array_length(src));
+
+	// get our src address
+	source_addr = mono_array_addr_with_size (src, element_size, 0);
+	// copy the array memory to heap via ptr dest
+	memcpy (dest, source_addr, mono_array_length(src) * element_size);
+}
+
+EMSCRIPTEN_KEEPALIVE int
+mono_wasm_exec_regression (int verbose_level, char *image)
+{
+	return mono_regression_test_step (verbose_level, image, NULL);
 }

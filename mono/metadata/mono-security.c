@@ -9,9 +9,7 @@
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include <mono/metadata/assembly-internals.h>
 #include <mono/metadata/appdomain.h>
@@ -21,9 +19,9 @@
 #include <mono/metadata/metadata-internals.h>
 #include <mono/metadata/security.h>
 #include <mono/utils/strenc.h>
+#include "reflection-internals.h"
 
 #ifndef HOST_WIN32
-#include <config.h>
 #ifdef HAVE_GRP_H
 #include <grp.h>
 #endif
@@ -624,7 +622,7 @@ void mono_invoke_protected_memory_method (MonoArray *data, MonoObject *scope, gb
 	if (system_security_assembly == NULL) {
 		system_security_assembly = mono_image_loaded ("System.Security");
 		if (!system_security_assembly) {
-			MonoAssembly *sa = mono_assembly_open_predicate ("System.Security.dll", MONO_ASMCTX_DEFAULT, NULL, NULL, NULL);
+			MonoAssembly *sa = mono_assembly_open_predicate ("System.Security.dll", MONO_ASMCTX_DEFAULT, NULL, NULL, NULL, NULL);
 			if (!sa)
 				g_assert_not_reached ();
 			system_security_assembly = mono_assembly_get_image_internal (sa);

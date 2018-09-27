@@ -83,6 +83,9 @@
 /* Disable support debug logging */
 /* #undef DISABLE_LOGGING */
 
+/* Disable runtime state dumping */
+#define DISABLE_CRASH_REPORTING 1
+
 /* Disable P/Invoke support */
 /* #undef DISABLE_PINVOKE */
 
@@ -292,7 +295,8 @@
 #ifdef _MSC_VER
 #define MONO_KEYWORD_THREAD __declspec (thread)
 #else
-#define MONO_KEYWORD_THREAD __thread
+// Cygwin/gcc emulates __thread.
+#undef MONO_KEYWORD_THREAD
 #endif
 
 /* Have large file support */
@@ -668,11 +672,16 @@
 /* The size of a `void *', as computed by sizeof. */
 #ifdef _WIN64
 #define SIZEOF_VOID_P 8
+#define TARGET_SIZEOF_VOID_P 8
 #else
 #define SIZEOF_VOID_P 4
+#define TARGET_SIZEOF_VOID_P 4
 #endif
 
 #define SIZEOF_REGISTER SIZEOF_VOID_P
+
+/* byte order of target */
+#define TARGET_BYTE_ORDER G_BYTE_ORDER
 
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1

@@ -243,6 +243,9 @@ endif
 		$(if $(filter $*,all), \
 			$(MAKE) $(PROFILE_PARALLEL_SUBDIRS) ENABLE_PARALLEL_SUBDIR_BUILD=1 || { final_exit="exit 1"; $$dk; };, \
 			$(foreach subdir,$(PROFILE_PARALLEL_SUBDIRS),$(MAKE) -C $(subdir) $* || { final_exit="exit 1"; $$dk; };))) \
+	$(if $(FACADES_FOLDER), \
+		$(MAKE) -C $(FACADES_FOLDER) $* || { final_exit="exit 1"; $$dk; }; \
+	) \
 	$$final_exit
 
 ifdef ENABLE_PARALLEL_SUBDIR_BUILD
@@ -264,15 +267,24 @@ endif
 # directories it depends on.
 #
 ifneq ($(PROFILE_PARALLEL_SUBDIRS),)
+
 dep_dirs = .dep_dirs-$(PROFILE)
-$(dep_dirs):
-	@echo "Creating $@..."
+
+#
+# This should track dependencies better but the variable can be defined in any
+# Makefile dependency. On top of that we should also regenerate when any of the
+# PROFILE_PARALLEL_SUBDIRS Makefile's are changed
+#
+$(dep_dirs): Makefile
+	$(if $(V),@echo "Creating $(abspath $@)...",)
 	list='$(PROFILE_PARALLEL_SUBDIRS)'; \
 	echo > $@; \
 	for d in $$list; do \
 		$(MAKE) -C $$d gen-deps DEPS_TARGET_DIR=$$d DEPS_FILE=$(abspath $@); \
 	done
+
 -include $(dep_dirs)
+
 endif
 
 .PHONY: gen-deps

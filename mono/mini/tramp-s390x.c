@@ -103,7 +103,7 @@ mono_arch_get_unbox_trampoline (MonoMethod *method, gpointer addr)
 	start = code = mono_domain_code_reserve (domain, 28);
 
 	S390_SET  (code, s390_r1, addr);
-	s390_aghi (code, this_pos, sizeof(MonoObject));
+	s390_aghi (code, this_pos, MONO_ABI_SIZEOF (MonoObject));
 	s390_br   (code, s390_r1);
 
 	g_assert ((code - start) <= 28);
@@ -546,7 +546,7 @@ mono_arch_create_rgctx_lazy_fetch_trampoline (guint32 slot, MonoTrampInfo **info
 	s390_lgr (code, MONO_ARCH_VTABLE_REG, s390_r2);
 #endif
 
-	tramp = mono_arch_create_specific_trampoline (GUINT_TO_POINTER (slot),
+	tramp = (guint8*)mono_arch_create_specific_trampoline (GUINT_TO_POINTER (slot),
 		MONO_TRAMPOLINE_RGCTX_LAZY_FETCH, mono_get_root_domain (), NULL);
 
 	/* jump to the actual trampoline */

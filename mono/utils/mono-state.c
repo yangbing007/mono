@@ -10,12 +10,11 @@
  */
 #include <config.h>
 #include <glib.h>
-#include <mono/utils/json.h>
 #include <mono/utils/mono-state.h>
 #include <mono/utils/mono-threads-coop.h>
 #include <mono/metadata/object-internals.h>
 
-#ifdef TARGET_OSX
+#ifndef DISABLE_CRASH_REPORTING
 
 extern GCStats mono_gc_stats;
 
@@ -147,16 +146,11 @@ mono_native_state_add_frames (JsonWriter *writer, int num_frames, MonoFrameSumma
 	mono_json_writer_array_end (writer);
 }
 
-
-static void
-mono_native_state_add_thread (JsonWriter *writer, MonoThreadSummary *thread, MonoContext *ctx)
+void
+mono_native_state_add_thread (JsonWriter *writer, MonoThreadSummary *thread, MonoContext *ctx, gboolean first_thread)
 {
-	static gboolean not_first_thread;
-
-	if (not_first_thread) {
+	if (!first_thread) {
 		mono_json_writer_printf (writer, ",\n");
-	} else {
-		not_first_thread = TRUE;
 	}
 
 	mono_json_writer_indent (writer);
@@ -184,7 +178,8 @@ mono_native_state_add_thread (JsonWriter *writer, MonoThreadSummary *thread, Mon
 	mono_json_writer_object_key(writer, "native_thread_id");
 	mono_json_writer_printf (writer, "\"0x%x\",\n", (gpointer) thread->native_thread_id);
 
-	mono_native_state_add_ctx (writer, ctx);
+	if (ctx)
+		mono_native_state_add_ctx (writer, ctx);
 
 	if (thread->num_managed_frames > 0) {
 		mono_native_state_add_frames (writer, thread->num_managed_frames, thread->managed_frames, "managed_frames");
@@ -268,10 +263,12 @@ mono_native_state_add_version (JsonWriter *writer)
 	mono_json_writer_object_key(writer, "configuration");
 	mono_json_writer_object_begin(writer);
 
-	char *build = mono_get_runtime_callbacks ()->get_runtime_build_info ();
 	mono_json_writer_indent (writer);
 	mono_json_writer_object_key(writer, "version");
+
+	char *build = mono_get_runtime_callbacks ()->get_runtime_build_info ();
 	mono_json_writer_printf (writer, "\"%s\",\n", build);
+	g_free (build);
 
 	mono_json_writer_indent (writer);
 	mono_json_writer_object_key(writer, "tlc");
@@ -436,11 +433,15 @@ mono_native_state_add_prologue (JsonWriter *writer)
 		mono_json_writer_indent (writer);
 		mono_json_writer_object_key(writer, "assertion_message");
 
-		char *pos;
+		size_t length;
+		const char *pos;
 		if ((pos = strchr (assertion_msg, '\n')) != NULL)
-			*pos = '\0';
+			length = (size_t)(pos - assertion_msg);
+		else
+			length = strlen (assertion_msg);
+		length = MIN (length, INT_MAX);
 
-		mono_json_writer_printf (writer, "\"%s\",\n", assertion_msg);
+		mono_json_writer_printf (writer, "\"%.*s\",\n", (int)length, assertion_msg);
 	}
 
 	// Start threads array
@@ -463,23 +464,87 @@ mono_native_state_add_epilogue (JsonWriter *writer)
 }
 
 void
+mono_native_state_init (JsonWriter *writer)
+{
+	mono_native_state_add_prologue (writer);
+}
+
+char *
+mono_native_state_emit (JsonWriter *writer)
+{
+	mono_native_state_add_epilogue (writer);
+	return writer->text->str;
+}
+
+char *
+mono_native_state_free (JsonWriter *writer, gboolean free_data)
+{
+	mono_native_state_add_epilogue (writer);
+	char *output = NULL;
+
+	// Make this interface work like the g_string free does
+	if (!free_data)
+		output = g_strdup (writer->text->str);
+
+	mono_json_writer_destroy (writer);
+	return output;
+}
+
+void
 mono_summarize_native_state_begin (void)
 {
 	mono_json_writer_init_static ();
-	mono_native_state_add_prologue (&writer);
+	mono_native_state_init (&writer);
 }
 
 char *
 mono_summarize_native_state_end (void)
 {
-	mono_native_state_add_epilogue (&writer);
-	return writer.text->str;
+	return mono_native_state_emit (&writer);
 }
 
 void
 mono_summarize_native_state_add_thread (MonoThreadSummary *thread, MonoContext *ctx)
 {
-	mono_native_state_add_thread (&writer, thread, ctx);
+	
+	static gboolean not_first_thread = FALSE;
+	mono_native_state_add_thread (&writer, thread, ctx, !not_first_thread);
+	not_first_thread = TRUE;
 }
 
-#endif // HOST_WIN32
+void
+mono_crash_dump (const char *jsonFile, MonoStackHash *hashes)
+{
+	size_t size = strlen (jsonFile);
+
+	gboolean success = FALSE;
+
+	// Save up to 100 dump files for a given stacktrace hash
+	for (int increment = 0; increment < 100; increment++) {
+		FILE* fp;
+		char *name = g_strdup_printf ("mono_crash.%" PRIx64 " .%d.json", hashes->offset_free_hash, increment);
+
+		if ((fp = fopen (name, "ab"))) {
+			if (ftell (fp) == 0) {
+				fwrite (jsonFile, size, 1, fp);
+				success = TRUE;
+			}
+		} else {
+			// Couldn't make file and file doesn't exist
+			g_warning ("Didn't have permission to access %s for file dump\n", name);
+		}
+
+		/*cleanup*/
+		if (fp)
+			fclose (fp);
+
+		g_free (name);
+
+		if (success)
+			return;
+	}
+
+	return;
+}
+
+#endif // DISABLE_CRASH_REPORTING

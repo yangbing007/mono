@@ -1,7 +1,7 @@
 # Process this file with autoconf to produce a configure script.
 #AC_PREREQ([2.62])
 
-AC_INIT(mono, [5.17.0],
+AC_INIT(mono, [5.19.0],
         [https://github.com/mono/mono/issues/new])
 
 AC_CONFIG_SRCDIR([README.md])
@@ -46,7 +46,7 @@ MONO_VERSION_BUILD=`echo $VERSION | cut -d . -f 3`
 # There is no ordering of corlib versions, no old or new,
 # the runtime expects an exact match.
 #
-MONO_CORLIB_VERSION=81EAEA1B-5443-4BFD-8443-C71D26B1B59D
+MONO_CORLIB_VERSION=8734F6C7-B633-4984-A7A2-6DF037E0FEF2
 
 #
 # Put a quoted #define in config.h.
@@ -105,12 +105,6 @@ need_link_unlink=no
 #Set to extra linker flags to be passed to the runtime binaries (mono /mono-sgen)
 extra_runtime_ldflags=""
 
-
-# Hack for WASM
-# Current autotools (v1.15) doesn't have a triplet we can use for wasm so the kludge we do is to
-# work around it by using a feature flag instead
-AC_ARG_ENABLE(wasm,[  --enable-wasm    Hack to set the current runtime to target wasm], enable_wasm=$enableval)
-
 # Thread configuration inspired by sleepycat's db
 AC_MSG_CHECKING([host platform characteristics])
 
@@ -127,17 +121,14 @@ platform_ios=no
 host_darwin=no
 host_linux=no
 
-
-if test "x$enable_wasm" = "xyes"; then
-CFLAGS="$CFLAGS -D_REENTRANT -D_GNU_SOURCE -DNO_UNALIGNED_ACCESS -s WASM=1"
-CPPFLAGS="$CPPFLAGS -D_REENTRANT -DUSE_MMAP -D_GNU_SOURCE -DNO_UNALIGNED_ACCESS -s WASM=1"
-libdl="-ldl"
-libgc_threads=pthreads
-platform_wasm=yes
-
-else
-
 case "$host" in
+	wasm32*)
+		CFLAGS="$CFLAGS -D_REENTRANT -D_GNU_SOURCE -s WASM=1"
+		CPPFLAGS="$CPPFLAGS -D_REENTRANT -DUSE_MMAP -s WASM=1"
+		libdl="-ldl"
+		libgc_threads=pthreads
+		platform_wasm=yes
+		;;
 	*-mingw*|*-*-cygwin*)
 		AC_DEFINE(DISABLE_PORTABILITY,1,[Disable the io-portability layer])
 		AC_DEFINE(HOST_NO_SYMLINKS,1,[This platform does not support symlinks])
@@ -374,7 +365,8 @@ case "$host" in
 		esac
 		;;
 	*-*-haiku*)
-		CPPFLAGS="$CPPFLAGS -D_REENTRANT -D_THREAD_SAFE"
+		dnl BSD_SOURCE is for getifaddrs
+		CPPFLAGS="$CPPFLAGS -D_BSD_SOURCE -D_REENTRANT -D_THREAD_SAFE"
 		libmono_cflags="-D_REENTRANT -D_THREAD_SAFE"
 		libdl=
 		LIBS="$LIBS -lnetwork -ltextencoding"
@@ -384,6 +376,7 @@ case "$host" in
 		with_tls=pthread
 		libgc_threads=pthreads
 		use_sigposix=yes
+		with_sigaltstack=no
 		;;
 	*-*-aix*|*-*-os400*)
 		dnl Set up a 64-bit build
@@ -413,9 +406,6 @@ case "$host" in
 		libdl="-ldl"
 		;;
 esac
-
-# WASM hack
-fi
 
 AC_MSG_RESULT(ok)
 
@@ -668,15 +658,8 @@ if test x$platform_android = xyes; then
 fi # Android
 
 # not 64 bit clean in cross-compile
-if test "x$enable_wasm" = "xyes"; then
-AC_DEFINE(SIZEOF_VOID_P,4)
-AC_DEFINE(SIZEOF_LONG,4)
-ac_cv_sizeof_void_p="4"
-ac_cv_sizeof_long="4"
-else
 AC_CHECK_SIZEOF(void *)
 AC_CHECK_SIZEOF(long)
-fi
 
 AC_CHECK_SIZEOF(int)
 AC_CHECK_SIZEOF(long long)
@@ -1000,15 +983,27 @@ fi
 #--with-crash_privacy=no --with-structured_crashes=no means you want to see no crash dumps on failure and you don't care about privacy. This is how you'd set a "don't want it, don't care" configuration.
 #--with-crash_privacy=no --with-structured_crashes=yes means you want full crashes and you want to see them in the terminal, not on telemetry. This is going to be how we build for CI.
 
-AC_ARG_WITH(crash-privacy,       [  --with-crash_privacy=yes,no         If you want your crashes to not include names of symbols present in the binary. ], [], [with_crash_privacy=no])
+AC_ARG_WITH(crash-privacy,       [  --with-crash_privacy=yes,no         If you want your crashes to not include names of symbols present in the binary. ], [], [with_crash_privacy=yes])
 AC_ARG_WITH(structured-crashes,  [  --with-structured_crashes=yes,no    If you want your unmanaged crashes to result in a small crash dump file. ],        [], [with_structured_crashes=yes])
+AC_ARG_ENABLE(crash-reporting,  [  --disable-crash-reporting            Enable or Disable crash reporting subsystem],        [crash_reporting=$enableval], [crash_reporting=yes])
 
-if test "x$with_crash_privacy" = "xno"; then
+if test "x$with_crash_privacy" = "xyes"; then
 AC_DEFINE(MONO_PRIVATE_CRASHES,1,[Do not include names of unmanaged functions in the crash dump])
 fi
 
 if test "x$with_structured_crashes" = "xno"; then
 AC_DEFINE(DISABLE_STRUCTURED_CRASH,1,[Do not create structured crash files during unmanaged crashes])
+fi
+
+case "$host" in
+	*-mingw*|*-*-cygwin*|*-*-aix*|*-*-os400*)
+		crash_reporting=no
+		;;
+esac
+
+if test "x$crash_reporting" != "xyes"; then
+CFLAGS="$CFLAGS -DDISABLE_CRASH_REPORTING=1"
+CXXFLAGS="$CXXFLAGS -DDISABLE_CRASH_REPORTING=1"
 fi
 
 AC_ARG_ENABLE(monodroid, [ --enable-monodroid Enable runtime support for Monodroid (Xamarin.Android)], enable_monodroid=$enableval, enable_monodroid=no)
@@ -1027,11 +1022,17 @@ fi
 
 AC_ARG_ENABLE(cxx, [  --enable-cxx   compile some code as C++])
 
+# mono/corefx/native has a lot of invalid C++98 in its headers
+# dotnet/corefx/native looks a lot better, i.e. 44e5bdafb8d989a220c9cf1b94f31a64a6e4f052
+#CXXFLAGS_COMMON=' -std=gnu++98 -fno-exceptions -fno-rtti '
+CXXFLAGS_COMMON=' -std=gnu++0x -fno-exceptions -fno-rtti '
+# "c++0x" instead of C++11, for compat with Centos6/gcc4.4
+
+AC_SUBST(CXXFLAGS_COMMON)
+
 if test "x$enable_cxx" = "xyes"; then
 
-	# FIXME Centos6 requires a different flag for prerelease C++11.
-	#CXX_ADD_CFLAGS=' -xc++ -std=gnu++98 -fno-exceptions -fno-rtti '
-	CXX_ADD_CFLAGS=' -xc++ -std=gnu++11 -fno-exceptions -fno-rtti '
+	CXX_ADD_CFLAGS=" -xc++ $CXXFLAGS_COMMON "
 
 	# -std=gnu99 -xc++ is not allowed and errors.
 	CXX_REMOVE_CFLAGS=-std=gnu99
@@ -1774,6 +1775,49 @@ if test x$platform_android = xyes; then
 	AC_DEFINE(HAVE_SIGNAL,1)
 fi
 
+dnl ***********************************
+dnl *** Checks for availability of GSS dependencies (krb5, gss.framework, etc)
+dnl ***********************************
+enable_gss=no;
+AC_MSG_CHECKING(for GSS/GSS.h)
+AC_TRY_COMPILE([
+    #include <GSS/GSS.h>
+], [
+],[
+    AC_MSG_RESULT(yes)
+    AC_DEFINE(HAVE_GSSFW_HEADERS, 1, [GSS/GSS.h])
+    AC_DEFINE(HAVE_GSS_SPNEGO_MECHANISM, 1, [GSS_SPNEGO_MECHANISM])
+    enable_gss=yes
+], [
+    AC_MSG_RESULT(no)
+])
+
+AC_MSG_CHECKING(for gssapi/gssapi_ext.h)
+AC_TRY_COMPILE([
+    #include <gssapi/gssapi_ext.h>
+], [
+],[
+    AC_MSG_RESULT(yes)
+    enable_gss=yes
+], [
+    AC_MSG_RESULT(no)
+])
+
+AC_MSG_CHECKING(for GSS_SPNEGO_MECHANISM)
+AC_TRY_COMPILE([
+    #include <gssapi/gssapi_ext.h>
+    #include <gssapi/gssapi_krb5.h>
+    gss_OID_set_desc gss_mech_spnego_OID_set_desc = {.count = 1, .elements = GSS_SPNEGO_MECHANISM};
+], [
+],[
+    AC_MSG_RESULT(yes)
+    AC_DEFINE(HAVE_GSS_SPNEGO_MECHANISM, 1, [GSS_SPNEGO_MECHANISM])
+], [
+    AC_MSG_RESULT(no)
+])
+
+AM_CONDITIONAL(ENABLE_GSS, test x$enable_gss = xyes)
+
 if test x$host_win32 = xno; then
 	dnl *************************************
 	dnl *** Checks for time capabilities ***
@@ -1890,6 +1934,7 @@ if test x$host_win32 = xno; then
 	AC_CHECK_FUNCS(getrlimit)
 	AC_CHECK_FUNCS(prctl)
 	AC_CHECK_FUNCS(arc4random)
+	AC_CHECK_FUNCS(nl_langinfo)
 
 	AC_CHECK_FUNCS(sched_getaffinity)
 	AC_CHECK_FUNCS(sched_setaffinity)
@@ -2291,6 +2336,23 @@ if test x$host_win32 = xno; then
 	])
 
 	dnl **********************************
+	dnl *** Check for getprotobyname_r ***
+	dnl **********************************
+	AC_MSG_CHECKING(for getprotobyname_r)
+		AC_TRY_LINK([
+		#include <stdio.h>
+		#include <netdb.h>
+	], [
+		getprotobyname_r(NULL, NULL, NULL, 0, NULL);
+	], [
+		# Yes, we have it...
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_GETPROTOBYNAME_R, 1, [Have getprotobyname_r])
+	], [
+		AC_MSG_RESULT(no)
+	])
+
+	dnl **********************************
 	dnl *** Check for getnameinfo ***
 	dnl **********************************
 	AC_MSG_CHECKING(for getnameinfo)
@@ -2393,24 +2455,7 @@ if test x$host_win32 = xno; then
 	AC_CHECK_FUNCS(pthread_attr_setstacksize)
 	AC_CHECK_FUNCS(pthread_attr_getstack pthread_attr_getstacksize)
 	AC_CHECK_FUNCS(pthread_get_stacksize_np pthread_get_stackaddr_np)
-
-	dnl **********************************
-	dnl *** Check for mincore ***
-	dnl **********************************
-	AC_MSG_CHECKING(for mincore)
-		AC_TRY_LINK([
-		#include <stdio.h>
-		#include <sys/types.h>
-		#include <sys/mman.h>
-	], [
-		mincore(NULL, 0, NULL);
-	], [
-		# Yes, we have it...
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_MINCORE, 1, [Have mincore])
-	], [
-		AC_MSG_RESULT(no)
-	])
+	AC_CHECK_FUNCS(mincore mlock munlock)
 
 	dnl ***********************************
 	dnl *** Checks for working __thread ***
@@ -3009,17 +3054,7 @@ if test x$host_win32 = xno; then
 	])
 
 	if test x$host_darwin = xno; then
-		AC_MSG_CHECKING(for struct flock64)
-		AC_TRY_COMPILE([
-			#include <fcntl.h>
-		], [
-			struct flock64;
-		],[
-			AC_MSG_RESULT(yes)
-			AC_DEFINE(HAVE_FLOCK64, 1, struct flock64)
-		], [
-			AC_MSG_RESULT(no)
-		])
+		AC_CHECK_TYPES([struct flock64], [AC_DEFINE(HAVE_FLOCK64, 1, struct flock64)], , [#include <fcntl.h>])
 	fi
 
 	AC_CHECK_FUNC(lseek64,           [AC_DEFINE(HAVE_LSEEK64, 1, [lseek64])])
@@ -3787,41 +3822,42 @@ internal_llvm="no"
 if test "x$enable_llvm" = "xyes"; then
 	if test "x$with_llvm" != "x"; then
 		EXTERNAL_LLVM_CONFIG=$with_llvm/bin/llvm-config
+		if test x$host_win32 = xyes; then
+			EXTERNAL_LLVM_CONFIG=$EXTERNAL_LLVM_CONFIG.exe
+		fi
 		if test ! -x $EXTERNAL_LLVM_CONFIG; then
 			AC_MSG_ERROR([LLVM executable $EXTERNAL_LLVM_CONFIG not found.])
 		fi
 	else
-		AC_PATH_PROG(EXTERNAL_LLVM_CONFIG, llvm-config, no)
+		if test x$host_win32 = xyes; then
+			AC_PATH_PROG(EXTERNAL_LLVM_CONFIG, llvm-config.exe, no)
+		else
+			AC_PATH_PROG(EXTERNAL_LLVM_CONFIG, llvm-config, no)
+		fi
 		if test "x$EXTERNAL_LLVM_CONFIG" = "xno"; then
 			internal_llvm=yes
-		else
-			with_llvm=`$EXTERNAL_LLVM_CONFIG --prefix`
 		fi
 	fi
-          
-	if test "x$host_win32" != "xyes"; then
-		LLVM_CODEGEN_LIBS="x86codegen"
-		case "$target" in
-		arm*)
-			LLVM_CODEGEN_LIBS="armcodegen"
-			;;
-		aarch64*)
-			LLVM_CODEGEN_LIBS="aarch64codegen"
-			;;
-		powerpc*)
-			LLVM_CODEGEN_LIBS="powerpccodegen"
-			;;
-		esac
-		if test "x$host" != "x$target"; then
-			# No need for jit libs
-			LLVM_CODEGEN_LIBS=
-		fi
 
-		AC_SUBST(LLVM_CODEGEN_LIBS)
-		AC_SUBST(EXTERNAL_LLVM_CONFIG)
-	else # is win32
-		AC_MSG_ERROR([LLVM for Windows only supported using Visual Studio build mono runtime, see http://www.mono-project.com/docs/advanced/mono-llvm/ for more details.])
-	fi # win32
+	LLVM_CODEGEN_LIBS="x86codegen"
+	case "$target" in
+	arm*)
+		LLVM_CODEGEN_LIBS="armcodegen"
+		;;
+	aarch64*)
+		LLVM_CODEGEN_LIBS="aarch64codegen"
+		;;
+	powerpc*)
+		LLVM_CODEGEN_LIBS="powerpccodegen"
+		;;
+	esac
+	if test "x$host" != "x$target"; then
+		# No need for jit libs
+		LLVM_CODEGEN_LIBS=
+	fi
+
+	AC_SUBST(LLVM_CODEGEN_LIBS)
+	AC_SUBST(EXTERNAL_LLVM_CONFIG)
 	
 	AC_DEFINE(ENABLE_LLVM, 1, [Enable the LLVM back end])
 fi # ENABLE_LLVM
@@ -3833,7 +3869,7 @@ if test "x$internal_llvm" != "xno"; then
 fi
 
 AM_CONDITIONAL(INTERNAL_LLVM_ASSERTS, [test "x$enable_llvm_asserts" != "xno"])
-if test "x$internal_llvm_asserts" != "xno"; then
+if test "x$enable_llvm_asserts" != "xno"; then
    AC_DEFINE(INTERNAL_LLVM_ASSERTS, 1, [Build LLVM with assertions])
 fi
 
@@ -3871,19 +3907,14 @@ boehm_supported=true
 BTLS_SUPPORTED=no
 BTLS_PLATFORM=
 
-if test "x$enable_wasm" = "xyes"; then
-TARGET=WASM
-HOST=WASM
-arch_target=wasm
-AC_DEFINE(TARGET_WASM, 1, [Target wasm])
-AC_DEFINE(HOST_WASM, 1, [Host wasm])
-BTLS_SUPPORTED=no
-with_tls=pthread
-target_mach=no
-
-else
-
 case "$host" in
+	wasm32*)
+		TARGET=WASM
+		arch_target=wasm
+		BTLS_SUPPORTED=no
+		ACCESS_UNALIGNED="no"
+		with_tls=pthread
+		;;
 	mips*)
 		TARGET=MIPS;
 		arch_target=mips;
@@ -4008,7 +4039,7 @@ case "$host" in
 		;;
 	macppc-*-openbsd* | powerpc*-*-linux* | powerpc-*-openbsd* | \
         powerpc-*-sysv* | powerpc-*-darwin* | powerpc-*-netbsd* | \
-        powerpc-*-freebsd* | powerpc-*-aix* | powerpc-*-os400* )
+        powerpc-*-freebsd* | powerpc*-*-aix* | powerpc*-*-os400* )
 		if test "x$ac_cv_sizeof_void_p" = "x8"; then
 			TARGET=POWERPC64;
 			CPPFLAGS="$CPPFLAGS -D__mono_ppc__ -D__mono_ppc64__"
@@ -4099,15 +4130,19 @@ if test "x$host" != "x$target"; then
    enable_mcs_build=no
    enable_support_build=no
    BTLS_SUPPORTED=no
+   # Can't use tls, since it depends on the runtime detection of tls offsets
+   # in mono-compiler.h
+   with_tls=pthread
+   target_mach=no
    case "$target" in
+   wasm32*)
+		TARGET=WASM
+		arch_target=wasm
+		AC_DEFINE(TARGET_WASM, 1, [Target wasm])
+		;;
    arm*-darwin*)
 		TARGET=ARM;
-		arch_target=arm;
-		ACCESS_UNALIGNED="no"
 		CPPFLAGS="$CPPFLAGS -D__ARM_EABI__"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h
-		with_tls=pthread
 		case "$target" in
 		armv7k-*)
 			arm_fpu=VFP_HARD
@@ -4137,99 +4172,30 @@ if test "x$host" != "x$target"; then
 		;;
    arm*-linux-*)
 		TARGET=ARM;
-		arch_target=arm;
-		AC_DEFINE(TARGET_ARM, 1, [...])
-		ACCESS_UNALIGNED="no"
 		CPPFLAGS="$CPPFLAGS -D__ARM_EABI__"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h
-		with_tls=pthread
-		target_mach=no
-		case "$target" in
-		armv7l-unknown-linux-gnueabi*)
-			# TEGRA
-			CPPFLAGS="$CPPFLAGS"
-			;;
-   		armv5-*-linux-androideabi*)
-			AC_DEFINE(TARGET_ANDROID, 1, [...])
-			CPPFLAGS="$CPPFLAGS"
-			;;
-   		*-linux-androideabi*)
-			AC_DEFINE(TARGET_ANDROID, 1, [...])
-			CPPFLAGS="$CPPFLAGS"
-			;;
-		esac
 		;;
    arm*-netbsd*-eabi*)
 		TARGET=ARM;
-		arch_target=arm;
-		AC_DEFINE(TARGET_ARM, 1, [...])
-		ACCESS_UNALIGNED="no"
 		CPPFLAGS="$CPPFLAGS -D__ARM_EABI__"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h
-		with_tls=pthread
-		target_mach=no
 		;;
    i686*-linux-*)
 		TARGET=X86;
-		arch_target=x86;
-		AC_DEFINE(TARGET_X86, 1, [...])
-		CPPFLAGS="$CPPFLAGS"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h		
-		with_tls=pthread
-		target_mach=no
-
-		case "$target" in
-		*-linux-android*)
-			AC_DEFINE(TARGET_ANDROID, 1, [...])
-			;;
-		esac
+		;;
+   i*86-apple-*)
+		TARGET=X86;
 		;;
    x86_64*-linux-*)
 		TARGET=AMD64;
-		arch_target=amd64;
-		AC_DEFINE(TARGET_AMD64, 1, [...])
-		CPPFLAGS="$CPPFLAGS"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h
-		with_tls=pthread
-		target_mach=no
-
-		case "$target" in
-		*-linux-android*)
-			AC_DEFINE(TARGET_ANDROID, 1, [...])
-			;;
-		esac
 		;;
    x86_64-ps4-freebsd)
 		TARGET=AMD64;
-		arch_target=amd64;
-		AC_DEFINE(TARGET_AMD64, 1, [...])
 		AC_DEFINE(TARGET_PS4, 1, [...])
 		AC_DEFINE(DISABLE_HW_TRAPS, 1, [...])
 		CPPFLAGS="$CPPFLAGS"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h
-		with_tls=pthread
-		target_mach=no
 		target_win32=no
 		;;
    aarch64*-linux-*)
 		TARGET=ARM64;
-		arch_target=arm64;
-		AC_DEFINE(TARGET_ARM64, 1, [...])
-		CPPFLAGS="$CPPFLAGS"
-		# Can't use tls, since it depends on the runtime detection of tls offsets
-		# in mono-compiler.h
-		with_tls=pthread
-		target_mach=no
-		case "$target" in
-		*-linux-android*)
-			AC_DEFINE(TARGET_ANDROID, 1, [...])
-			;;
-		esac
 		;;
 	aarch64-*)
 		TARGET=ARM64
@@ -4237,20 +4203,41 @@ if test "x$host" != "x$target"; then
 	*)
 		AC_MSG_ERROR([Cross compiling is not supported for target $target])
 	esac
+
+	case "$target" in
+	*-darwin*)
+		target_mach=yes
+		;;
+	*-linux-android*)
+		AC_DEFINE(TARGET_ANDROID, 1, [...])
+		;;
+	esac
 fi
 
 case "$TARGET" in
+WASM)
+	AC_DEFINE(TARGET_WASM, 1, [...])
+	arch_target=wasm
+	target_sizeof_void_p=4
+	;;
 X86)
 	AC_DEFINE(TARGET_X86, 1, [...])
+	arch_target=x86
+	target_sizeof_void_p=4
 	;;
 AMD64)
 	AC_DEFINE(TARGET_AMD64, 1, [...])
+	arch_target=amd64
 	;;
 ARM)
 	AC_DEFINE(TARGET_ARM, 1, [...])
+	arch_target=arm
+	ACCESS_UNALIGNED="no"
+	target_sizeof_void_p=4
 	;;
 ARM64)
 	AC_DEFINE(TARGET_ARM64, 1, [...])
+	arch_target=arm64
 	;;
 POWERPC)
 	AC_DEFINE(TARGET_POWERPC, 1, [...])
@@ -4274,6 +4261,9 @@ SPARC64)
 esac
 
 case "$HOST" in
+WASM)
+	AC_DEFINE(HOST_WASM, 1, [...])
+	;;
 X86)
 	AC_DEFINE(HOST_X86, 1, [...])
 	;;
@@ -4307,9 +4297,6 @@ SPARC64)
 	;;
 esac
 
-#WASM hack
-fi
-
 MONO_ARCH_GSHAREDVT_SUPPORTED=0
 case "$HOST" in
 X86 | AMD64 | ARM | ARM64)
@@ -4318,6 +4305,7 @@ X86 | AMD64 | ARM | ARM64)
 esac
 
 AM_CONDITIONAL(MONO_ARCH_GSHAREDVT_SUPPORTED, test $MONO_ARCH_GSHAREDVT_SUPPORTED = 1)
+AM_CONDITIONAL(TARGET_WASM, test $arch_target = wasm)
 
 dnl *************
 dnl *** VTUNE ***
@@ -4403,14 +4391,6 @@ fi
 
 AM_CONDITIONAL(TARGET_OSX, test x$target_osx = xyes)
 
-if test "x$sizeof_register" = "x4"; then
-   AC_DEFINE(SIZEOF_REGISTER,4,[size of machine integer registers])
-elif test "x$sizeof_register" = "x8"; then
-   AC_DEFINE(SIZEOF_REGISTER,8,[size of machine integer registers])
-else
-   AC_DEFINE(SIZEOF_REGISTER,SIZEOF_VOID_P,[size of machine integer registers])
-fi
-
 AC_SUBST(SIZEOF_VOID_P,[$ac_cv_sizeof_void_p])
 
 if test "x$target_byte_order" = "xG_BIG_ENDIAN"; then
@@ -4419,6 +4399,21 @@ elif test "x$target_byte_order" = "xG_LITTLE_ENDIAN"; then
    AC_DEFINE(TARGET_BYTE_ORDER,G_LITTLE_ENDIAN,[byte order of target])
 else
    AC_DEFINE(TARGET_BYTE_ORDER,G_BYTE_ORDER,[byte order of target])
+fi
+
+if test "x$target_sizeof_void_p" != "x"; then
+   AC_DEFINE_UNQUOTED(TARGET_SIZEOF_VOID_P,${target_sizeof_void_p},[wordsize of target])
+   # This is true for all the current cross-compiling targets
+   AC_DEFINE(SIZEOF_REGISTER,TARGET_SIZEOF_VOID_P,[size of target machine integer registers])
+else
+   AC_DEFINE(TARGET_SIZEOF_VOID_P,SIZEOF_VOID_P,[wordsize of target])
+   if test "x$sizeof_register" = "x4"; then
+      AC_DEFINE(SIZEOF_REGISTER,4,[size of target machine integer registers])
+   elif test "x$sizeof_register" = "x8"; then
+      AC_DEFINE(SIZEOF_REGISTER,8,[size of target machine integer registers])
+   else
+      AC_DEFINE(SIZEOF_REGISTER,SIZEOF_VOID_P,[size of target machine integer registers])
+   fi
 fi
 
 if test "x$have_visibility_hidden" = "xyes"; then
@@ -4636,8 +4631,9 @@ if test $found_export_dynamic = no; then
 	LDFLAGS="${old_ldflags}"
 fi
 
-AC_CHECK_HEADERS(getopt.h sys/select.h sys/time.h sys/wait.h pwd.h iconv.h localcharset.h sys/types.h sys/resource.h)
-AC_CHECK_LIB([iconv], [locale_charset],[],[AC_CHECK_LIB([charset], [locale_charset],[LIBS+=" -liconv -lcharset"])])
+AC_CHECK_HEADERS(getopt.h sys/select.h sys/time.h sys/wait.h pwd.h iconv.h sys/types.h sys/resource.h)
+dnl giconv.c will check on HAVE_ICONV_H but we need this for link time
+AC_CHECK_LIB(iconv, iconv_open)
 AC_CHECK_HEADER(alloca.h, [HAVE_ALLOCA_H=1], [HAVE_ALLOCA_H=0])
 AC_SUBST(HAVE_ALLOCA_H)
 
@@ -5044,6 +5040,31 @@ AC_ARG_WITH(lazy_gc_thread_creation, [  --with-lazy-gc-thread-creation=yes|no   
 	fi
 ], [with_lazy_gc_thread_creation=no])
 
+dnl *****************************
+dnl *** Thread suspend policy ***
+dnl *****************************
+
+dnl Set a default hybrid or cooperative suspend on some platforms
+
+dnl Coop default is set by the bitcode preset.
+
+dnl If coop isn't on by default, maybe hybrid should be?
+if test x$enable_cooperative_suspend_default != xyes; then
+	case $HOST in
+	X86 | AMD64)
+		dnl Some host/target confusion, there's no host_osx (and
+		dnl host_darwin would be true on iOS not just macOS).
+		if test x$target_osx = xyes; then
+			enable_hybrid_suspend_default=yes
+		elif test x$host_linux = xyes -o x$host_win32 = xyes; then
+			enable_hybrid_suspend_default=yes
+		fi
+		;;
+	esac
+fi
+
+dnl Now check if there were flags overriding the defaults
+
 AC_ARG_WITH(cooperative_gc,        [  --with-cooperative-gc=yes|no        Enable cooperative stop-the-world garbage collection (sgen only) (defaults to no)], [AC_MSG_WARN([--with-cooperative-gc is deprecated, use --enable-cooperative-suspend instead])], [with_cooperative_gc=default])
 AC_ARG_ENABLE(cooperative_suspend, [  --enable-cooperative-suspend      Enable cooperative stop-the-world garbage collection (sgen only) (defaults to no)], [], [enable_cooperative_suspend=default])
 
@@ -5077,6 +5098,12 @@ fi
 
 AM_CONDITIONAL([ENABLE_HYBRID_SUSPEND], [test x$enable_hybrid_suspend != xno])
 
+dnl End of thread suspend policy
+
+dnl **********************
+dnl *** checked builds ***
+dnl **********************
+
 AC_ARG_ENABLE(checked_build, [  --enable-checked-build=LIST      To enable checked build (expensive asserts), configure with a comma-separated LIST of checked build modules and then include that same list in the environment variable MONO_CHECK_MODE at runtime. Recognized checked build modules: all, gc, metadata, thread, private_types],[
 
 	if test x$enable_checked_build != x ; then
@@ -5109,6 +5136,8 @@ AC_ARG_ENABLE(checked_build, [  --enable-checked-build=LIST      To enable check
 		AC_DEFINE(ENABLE_CHECKED_BUILD_PRIVATE_TYPES, 1, [Enable private types checked build])
 	fi
 ], [])
+
+dnl End of checked builds
 
 AC_CHECK_HEADER([malloc.h], 
 		[AC_DEFINE([HAVE_USR_INCLUDE_MALLOC_H], [1], 
@@ -5491,6 +5520,7 @@ AC_CONFIG_COMMANDS([runtime/etc/mono/4.5/web.config],
 
 AC_CONFIG_COMMANDS([quiet-libtool], [sed -e 's/echo "copying selected/# "copying selected/g' < libtool > libtool.tmp && mv libtool.tmp libtool && chmod a+x libtool; sed -e 's/$ECHO "copying selected/# "copying selected/g' < libtool > libtool.tmp && mv libtool.tmp libtool && chmod a+x libtool])
 AC_CONFIG_COMMANDS([nolock-libtool], [sed -e 's/lock_old_archive_extraction=yes/lock_old_archive_extraction=no/g' < libtool > libtool.tmp && mv libtool.tmp libtool && chmod a+x libtool])
+AC_CONFIG_COMMANDS([clean-llvm], [rm -f llvm/llvm_config.mk])
 
 # Anything involving -Werror must be done late because autoconf depends on compiling with warnings to be success.
 if test x"$GCC" = xyes; then
@@ -5511,7 +5541,7 @@ if test x"$GCC" = xyes; then
 fi
 
 # Update all submodules recursively to ensure everything is checked out
-$srcdir/scripts/update_submodules.sh
+(cd $srcdir && scripts/update_submodules.sh)
 
 AC_OUTPUT([
 Makefile
@@ -5539,6 +5569,7 @@ mono/arch/arm64/Makefile
 mono/arch/mips/Makefile
 mono/sgen/Makefile
 mono/tests/Makefile
+mono/tests/assembly-load-reference/Makefile
 mono/tests/tests-config
 mono/tests/gc-descriptors/Makefile
 mono/tests/testing_gac/Makefile
@@ -5548,6 +5579,7 @@ mono/mini/Makefile
 mono/profiler/Makefile
 mono/eglib/Makefile
 mono/eglib/eglib-config.h
+mono/eglib/test/Makefile
 m4/Makefile
 ikvm-native/Makefile
 scripts/Makefile
@@ -5734,9 +5766,9 @@ fi
 
 thread_suspend_msg=
 if test x$buildsgen = xyes; then
-	if test x$enable_cooperative_suspend = xyes; then
+	if test x$enable_cooperative_suspend != xno; then
 		thread_suspend_msg="Suspend:       Cooperative"
-	elif test x$enable_hybrid_suspend = xyes; then
+	elif test x$enable_hybrid_suspend != xno; then
 		thread_suspend_msg="Suspend:       Hybrid"
 	else
 		thread_suspend_msg="Suspend:       Preemptive"
@@ -5777,6 +5809,7 @@ echo "
 	zlib:            $zlib_msg
 	BTLS:            $enable_btls$btls_platform_string
 	jemalloc:        $with_jemalloc (always use: $with_jemalloc_always)
+	crash reporting: $crash_reporting
 	$disabled
 "
 if test x$with_static_mono = xno -a "x$host_win32" != "xyes"; then

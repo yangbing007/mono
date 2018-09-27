@@ -153,7 +153,7 @@ typedef struct {
 	guint8  size    : 4; /* 1, 2, 4, 8, or regs used by ArgStructByVal */
 } ArgInfo;
 
-typedef struct {
+struct CallInfo {
 	int nargs;
 	int gr;
 	int fr;
@@ -166,7 +166,7 @@ typedef struct {
 	ArgInfo ret;
 	ArgInfo sig_cookie;
 	ArgInfo args [1];
-} CallInfo;
+};
 
 void patch_lui_addiu(guint32 *ip, guint32 val);
 static
@@ -514,7 +514,7 @@ mono_arch_get_argument_info (MonoMethodSignature *csig, int param_count, MonoJit
 /* The delegate object plus 3 params */
 #define MAX_ARCH_DELEGATE_PARAMS (4 - 1)
 
-static gpointer
+static guint8*
 get_delegate_invoke_impl (MonoTrampInfo **info, gboolean has_target, gboolean param_count)
 {
 	guint8 *code, *start;
@@ -1534,7 +1534,7 @@ mono_arch_allocate_vars (MonoCompile *cfg)
 
 #if _MIPS_SIM == _ABIO32
 	/* Now add space for saving the ra */
-	offset += SIZEOF_VOID_P;
+	offset += TARGET_SIZEOF_VOID_P;
 
 	/* change sign? */
 	offset = (offset + MIPS_STACK_ALIGNMENT - 1) & ~(MIPS_STACK_ALIGNMENT - 1);
@@ -1597,7 +1597,7 @@ mono_arch_allocate_vars (MonoCompile *cfg)
 	}
 #if _MIPS_SIM == _ABIN32
 	/* Now add space for saving the ra */
-	offset += SIZEOF_VOID_P;
+	offset += TARGET_SIZEOF_VOID_P;
 
 	/* change sign? */
 	offset = (offset + MIPS_STACK_ALIGNMENT - 1) & ~(MIPS_STACK_ALIGNMENT - 1);
@@ -1884,7 +1884,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 			soffset += SIZEOF_REGISTER;
 		}
 		if (ovf_size != 0) {
-			mini_emit_memcpy (cfg, mips_sp, doffset, src->dreg, soffset, ovf_size * sizeof (gpointer), SIZEOF_VOID_P);
+			mini_emit_memcpy (cfg, mips_sp, doffset, src->dreg, soffset, ovf_size * sizeof (gpointer), TARGET_SIZEOF_VOID_P);
 		}
 	} else if (ainfo->storage == ArgInFReg) {
 		int tmpr = mono_alloc_freg (cfg);
@@ -1912,7 +1912,7 @@ mono_arch_emit_outarg_vt (MonoCompile *cfg, MonoInst *ins, MonoInst *src)
 			g_assert (ovf_size > 0);
 
 		EMIT_NEW_VARLOADA (cfg, load, vtcopy, vtcopy->inst_vtype);
-		mini_emit_memcpy (cfg, load->dreg, 0, src->dreg, 0, size, SIZEOF_VOID_P);
+		mini_emit_memcpy (cfg, load->dreg, 0, src->dreg, 0, size, TARGET_SIZEOF_VOID_P);
 
 		if (ainfo->offset)
 			MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, mips_at, ainfo->offset, load->dreg);
@@ -5145,7 +5145,7 @@ mono_arch_emit_prolog (MonoCompile *cfg)
 		/* no stack slots by default for argument regs, reserve a special block */
 		g_assert_not_reached ();
 #endif
-		code = mono_arch_instrument_prolog (cfg, mono_trace_enter_method, code, TRUE);
+		code = (guint8*)mono_arch_instrument_prolog (cfg, mono_trace_enter_method, code, TRUE);
 	}
 
 	set_code_cursor (cfg, code);
@@ -5285,7 +5285,7 @@ mono_arch_emit_epilog_sub (MonoCompile *cfg)
 	code = cfg->native_code + cfg->code_len;
 
 	if (mono_jit_trace_calls != NULL && mono_trace_eval (method)) {
-		code = mono_arch_instrument_epilog (cfg, mono_trace_leave_method, code, TRUE);
+		code = (guint8*)mono_arch_instrument_epilog (cfg, mono_trace_leave_method, code, TRUE);
 	}
 	if (cfg->frame_reg != mips_sp) {
 		MIPS_MOVE (code, mips_sp, cfg->frame_reg);
@@ -5813,7 +5813,7 @@ mono_arch_skip_single_step (MonoContext *ctx)
  *
  *   See mini-amd64.c for docs.
  */
-gpointer
+SeqPointInfo*
 mono_arch_get_seq_point_info (MonoDomain *domain, guint8 *code)
 {
 	NOT_IMPLEMENTED;

@@ -26,6 +26,15 @@
 #define MONO_ATTR_FORMAT_PRINTF(fmt_pos,arg_pos)
 #endif
 
+// This should be portable to all C++11 implementations. It is restricted like this to be a smaller change.
+#if defined (__cplusplus) && (defined (HOST_WASM) || (defined (HOST_WIN32) && defined (__GNUC__)))
+#include <cmath>
+using std::trunc;
+using std::isnan;
+using std::isinf;
+using std::isnormal;
+#endif
+
 /* Deal with Microsoft C compiler differences */
 #ifdef _MSC_VER
 
@@ -89,7 +98,7 @@ typedef SSIZE_T ssize_t;
 
 #if !defined(_MSC_VER) && !defined(HOST_SOLARIS) && !defined(_WIN32) && !defined(__CYGWIN__) && !defined(MONOTOUCH) && HAVE_VISIBILITY_HIDDEN
 #if MONO_LLVM_LOADED
-#define MONO_LLVM_INTERNAL MONO_API
+#define MONO_LLVM_INTERNAL MONO_API_NO_EXTERN_C
 #else
 #define MONO_LLVM_INTERNAL
 #endif
@@ -123,6 +132,12 @@ typedef SSIZE_T ssize_t;
 #define MONO_COLD __attribute__ ((__cold__))
 #else
 #define MONO_COLD
+#endif
+
+#ifdef __GNUC__
+#define MONO_NO_OPTIMIZATION __attribute__ ((optimize("O0")))
+#else
+#define MONO_NO_OPTIMIZATION
 #endif
 
 #if defined (__GNUC__) && defined (__GNUC_MINOR__) && defined (__GNUC_PATCHLEVEL__)
@@ -173,6 +188,11 @@ typedef int32_t __mono_off32_t;
 #endif
 
 #if !defined(mmap)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Unified headers before API 21 do not declare mmap when LARGE_FILES are used (via -D_FILE_OFFSET_BITS=64)
  * which is always the case when Mono build targets Android. The problem here is that the unified headers
  * map `mmap` to `mmap64` if large files are enabled but this api exists only in API21 onwards. Therefore
@@ -180,6 +200,11 @@ typedef int32_t __mono_off32_t;
  * in this instance off_t is redeclared to be 64-bit and that's not what we want.
  */
 void* mmap (void*, size_t, int, int, int, __mono_off32_t);
+
+#ifdef __cplusplus
+} // extern C
+#endif
+
 #endif /* !mmap */
 
 #ifdef HAVE_SYS_SENDFILE_H
@@ -187,8 +212,18 @@ void* mmap (void*, size_t, int, int, int, __mono_off32_t);
 #endif
 
 #if !defined(sendfile)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* The same thing as with mmap happens with sendfile */
 ssize_t sendfile (int out_fd, int in_fd, __mono_off32_t* offset, size_t count);
+
+#ifdef __cplusplus
+} // extern C
+#endif
+
 #endif /* !sendfile */
 
 #endif /* __ANDROID_API__ < 21 */

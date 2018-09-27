@@ -3,6 +3,8 @@
 export MONO_REPO_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../" && pwd )"
 export TESTCMD=${MONO_REPO_ROOT}/scripts/ci/run-step.sh
 
+export CI_CPU_COUNT=$(getconf _NPROCESSORS_ONLN || echo 4)
+
 export TEST_HARNESS_VERBOSE=1
 
 make_timeout=300m
@@ -22,7 +24,7 @@ if [[ ${CI_TAGS} == *'win-'* ]]; then
     # Passing -ggdb3 on Cygwin breaks linking against libmonosgen-x.y.dll
     export CFLAGS="$CFLAGS -g -O2"
 else
-    export CFLAGS="$CFLAGS -ggdb3 -O2"
+    export EXTRA_CFLAGS="$EXTRA_CFLAGS -ggdb3 -O2"
 fi
 
 if [[ $CI_TAGS == *'collect-coverage'* ]]; then
@@ -35,8 +37,11 @@ if [[ $CI_TAGS == *'retry-flaky-tests'* ]]; then
     export MONO_FLAKY_TEST_RETRIES=5
 fi
 
-if [[ ${CI_TAGS} == *'osx-i386'* ]]; then CFLAGS="$CFLAGS -m32 -arch i386 -mmacosx-version-min=10.8"; LDFLAGS="$LDFLAGS -m32 -arch i386"; EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --with-libgdiplus=/Library/Frameworks/Mono.framework/Versions/Current/lib/libgdiplus.dylib --host=i386-apple-darwin11.2.0 --build=i386-apple-darwin11.2.0"; fi
-if [[ ${CI_TAGS} == *'osx-amd64'* ]]; then CFLAGS="$CFLAGS -m64 -arch x86_64 -mmacosx-version-min=10.8"; LDFLAGS="$LDFLAGS -m64 -arch x86_64" EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --with-libgdiplus=/Library/Frameworks/Mono.framework/Versions/Current/lib/libgdiplus.dylib"; fi
+# We don't want to have to maintain symbolification blobs for CI
+export EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --with-crash-privacy=no "
+
+if [[ ${CI_TAGS} == *'osx-i386'* ]]; then EXTRA_CFLAGS="$EXTRA_CFLAGS -m32 -arch i386 -mmacosx-version-min=10.9"; EXTRA_LDFLAGS="$EXTRA_LDFLAGS -m32 -arch i386"; EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --with-libgdiplus=/Library/Frameworks/Mono.framework/Versions/Current/lib/libgdiplus.dylib --host=i386-apple-darwin13.0.0 --build=i386-apple-darwin13.0.0"; fi
+if [[ ${CI_TAGS} == *'osx-amd64'* ]]; then EXTRA_CFLAGS="$EXTRA_CFLAGS -m64 -arch x86_64 -mmacosx-version-min=10.9"; EXTRA_LDFLAGS="$EXTRA_LDFLAGS -m64 -arch x86_64" EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --with-libgdiplus=/Library/Frameworks/Mono.framework/Versions/Current/lib/libgdiplus.dylib"; fi
 if [[ ${CI_TAGS} == *'win-i386'* ]]; then PLATFORM=Win32; EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --host=i686-w64-mingw32"; export MONO_EXECUTABLE="${MONO_REPO_ROOT}/msvc/build/sgen/Win32/bin/Release/mono-sgen.exe"; fi
 if [[ ${CI_TAGS} == *'win-amd64'* ]]; then PLATFORM=x64; EXTRA_CONF_FLAGS="${EXTRA_CONF_FLAGS} --host=x86_64-w64-mingw32 --disable-boehm"; export MONO_EXECUTABLE="${MONO_REPO_ROOT}/msvc/build/sgen/x64/bin/Release/mono-sgen.exe"; fi
 
@@ -80,10 +85,7 @@ fi
 
 if [[ ${CI_TAGS} == *'cxx'* ]]; then
 	EXTRA_CONF_FLAGS="$EXTRA_CONF_FLAGS -enable-cxx"
-fi
-
-if [[ ${CI_TAGS} == *'cplusplus'* ]]; then
-	EXTRA_CONF_FLAGS="$EXTRA_CONF_FLAGS -enable-cxx"
+	MSBUILD_CXX="/p:MONO_COMPILE_AS_CPP=true"
 fi
 
 if [[ ${CI_TAGS} == *'win-'* ]];
@@ -96,13 +98,18 @@ if [[ ${CI_TAGS} == *'product-sdks-ios'* ]];
    then
 	   echo "DISABLE_ANDROID=1" > sdks/Make.config
 	   echo "DISABLE_WASM=1" >> sdks/Make.config
+	   if [[ ${CI_TAGS} == *'cxx'* ]]; then
+		   echo "ENABLE_CXX=1" >> sdks/Make.config
+	   fi
 	   export device_test_suites="Mono.Runtime.Tests System.Core"
 
-	   ${TESTCMD} --label=build-sim-runtimes --timeout=60m --fatal make -j4 -C sdks/builds package-ios-{sim64,sim32,simtv,simwatch}
-	   ${TESTCMD} --label=build-dev-runtimes --timeout=60m --fatal make -j4 -C sdks/builds package-ios-{target64,target32,targettv,targetwatch}
-	   ${TESTCMD} --label=build-cross-compilers --timeout=60m --fatal make -j4 -C sdks/builds package-ios-{cross64,cross32,crosswatch}
+	   ${TESTCMD} --label=provision-llvm --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds provision-llvm36-llvm32 provision-llvm-llvm64
 
-	   ${TESTCMD} --label=bcl --timeout=60m --fatal make -j4 -C sdks/builds package-bcl
+	   ${TESTCMD} --label=build-sim-runtimes --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-ios-{sim64,sim32,simtv,simwatch}
+	   ${TESTCMD} --label=build-dev-runtimes --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-ios-{target64,target32,targettv,targetwatch}
+	   ${TESTCMD} --label=build-cross-compilers --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-ios-{cross64,cross32,cross32-64,crosswatch}
+
+	   ${TESTCMD} --label=bcl --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-bcl
 	   ${TESTCMD} --label=build-tests --timeout=10m --fatal make -C sdks/ios compile-tests
 	   ${TESTCMD} --label=run-sim --timeout=20m make -C sdks/ios run-ios-sim-all
 	   ${TESTCMD} --label=build-ios-dev --timeout=60m make -C sdks/ios build-ios-dev-all
@@ -121,7 +128,7 @@ if [[ ${CI_TAGS} == *'product-sdks-ios'* ]];
 	   if [[ ${CI_TAGS} == *'run-device-tests'* ]]; then
 		   for suite in ${device_test_suites}; do ${TESTCMD} --label=run-ios-dev-interp-mixed-${suite} --timeout=10m make -C sdks/ios run-ios-dev-${suite}; done
 	   fi
-	   ${TESTCMD} --label=package --timeout=60m tar cvzf mono-product-sdk-$GIT_COMMIT.tar.gz -C sdks/out/ bcl ios-llvm64 ios-llvm32 ios-cross32-release ios-cross64-release
+	   ${TESTCMD} --label=package --timeout=60m tar cvzf mono-product-sdk-$GIT_COMMIT.tar.gz -C sdks/out/ bcl llvm-llvm64 llvm36-llvm32 ios-cross32-release ios-cross64-release
 	   exit 0
 fi
 
@@ -129,12 +136,39 @@ if [[ ${CI_TAGS} == *'product-sdks-android'* ]];
    then
         echo "IGNORE_PROVISION_ANDROID=1" > sdks/Make.config
         echo "IGNORE_PROVISION_MXE=1" >> sdks/Make.config
+        echo "IGNORE_PROVISION_LLVM=1" >> sdks/Make.config
         echo "DISABLE_CCACHE=1" >> sdks/Make.config
-        ${TESTCMD} --label=provision-android --timeout=120m --fatal make -j4 -C sdks/builds provision-android
-        if [[ ${CI_TAGS} == *'provision-mxe'* ]]; then
-            ${TESTCMD} --label=provision-mxe --timeout=240m --fatal make -j4 -C sdks/builds provision-mxe
+        if [[ ${CI_TAGS} == *'cxx'* ]]; then
+            echo "ENABLE_CXX=1" >> sdks/Make.config
         fi
-        ${TESTCMD} --label=runtimes --timeout=120m --fatal make -j4 -C sdks/builds package-android-{armeabi,armeabi-v7a,arm64-v8a,x86,x86_64} package-android-host-{Darwin,mxe-Win64}
+        # For some very strange reasons, `make -C sdks/android accept-android-license` get stuck when invoked through ${TESTCMD}
+        # but doesn't get stuck when called via the shell, so let's just call it here now.
+        ${TESTCMD} --label=provision-android --timeout=120m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds provision-android && make -C sdks/android accept-android-license
+        if [[ ${CI_TAGS} == *'provision-mxe'* ]]; then
+            ${TESTCMD} --label=provision-mxe --timeout=240m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds provision-mxe
+        fi
+        ${TESTCMD} --label=provision-llvm --timeout=240m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds provision-llvm-llvm{,win}{32,64}
+        ${TESTCMD} --label=runtimes --timeout=120m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-android-{armeabi-v7a,arm64-v8a,x86,x86_64} package-android-host-{Darwin,mxe-Win64} package-android-cross-{arm,arm64,x86,x86_64}{,-win}
+        ${TESTCMD} --label=package --timeout=60m --fatal make -C sdks/android package
+        ${TESTCMD} --label=mini --timeout=60m make -C sdks/android check-mini
+        ${TESTCMD} --label=corlib --timeout=60m make -C sdks/android check-corlib
+        ${TESTCMD} --label=System --timeout=60m make -C sdks/android check-System
+        ${TESTCMD} --label=System.Core --timeout=60m make -C sdks/android check-System.Core
+        ${TESTCMD} --label=System.Data --timeout=60m make -C sdks/android check-System.Data
+        ${TESTCMD} --label=System.IO.Compression.FileSystem --timeout=60m make -C sdks/android check-System.IO.Compression.FileSystem
+        ${TESTCMD} --label=System.IO.Compression --timeout=60m make -C sdks/android check-System.IO.Compression
+        ${TESTCMD} --label=System.Json --timeout=60m make -C sdks/android check-System.Json
+        ${TESTCMD} --label=System.Net.Http --timeout=60m make -C sdks/android check-System.Net.Http
+        ${TESTCMD} --label=System.Numerics --timeout=60m make -C sdks/android check-System.Numerics
+        ${TESTCMD} --label=System.Runtime.Serialization --timeout=60m make -C sdks/android check-System.Runtime.Serialization
+        ${TESTCMD} --label=System.ServiceModel.Web --timeout=60m make -C sdks/android check-System.ServiceModel.Web
+        ${TESTCMD} --label=System.Transactions --timeout=60m make -C sdks/android check-System.Transactions
+        ${TESTCMD} --label=System.Xml --timeout=60m make -C sdks/android check-System.Xml
+        ${TESTCMD} --label=System.Xml.Linq --timeout=60m make -C sdks/android check-System.Xml.Linq
+        ${TESTCMD} --label=Mono.CSharp --timeout=60m make -C sdks/android check-Mono.CSharp
+        ${TESTCMD} --label=Mono.Data.Sqlite --timeout=60m make -C sdks/android check-Mono.Data.Sqlite
+        ${TESTCMD} --label=Mono.Data.Tds --timeout=60m make -C sdks/android check-Mono.Data.Tds
+        ${TESTCMD} --label=Mono.Security --timeout=60m make -C sdks/android check-Mono.Security
         exit 0
 fi
 
@@ -142,9 +176,13 @@ if [[ ${CI_TAGS} == *'webassembly'* ]];
    then
 	   echo "DISABLE_ANDROID=1" > sdks/Make.config
 	   echo "DISABLE_IOS=1" >> sdks/Make.config
-	   ${TESTCMD} --label=runtimes --timeout=60m --fatal make -j4 -C sdks/builds package-wasm-interp
-	   ${TESTCMD} --label=bcl --timeout=60m --fatal make -j4 -C sdks/builds package-bcl
-	   ${TESTCMD} --label=wasm-build --timeout=60m --fatal make -j4 -C sdks/wasm build
+	   echo "DISABLE_DESKTOP=1" >> sdks/Make.config
+	   if [[ ${CI_TAGS} == *'cxx'* ]]; then
+	       echo "ENABLE_CXX=1" >> sdks/Make.config
+	   fi
+	   ${TESTCMD} --label=runtimes --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-wasm-runtime package-wasm-cross
+	   ${TESTCMD} --label=bcl --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/builds package-bcl
+	   ${TESTCMD} --label=wasm-build --timeout=60m --fatal make -j ${CI_CPU_COUNT} -C sdks/wasm build
 	   ${TESTCMD} --label=ch-mini-test --timeout=60m make -C sdks/wasm run-ch-mini
 	   ${TESTCMD} --label=v8-mini-test --timeout=60m make -C sdks/wasm run-v8-mini
 	   ${TESTCMD} --label=sm-mini-test --timeout=60m make -C sdks/wasm run-sm-mini
@@ -164,17 +202,17 @@ fi
 
 if [[ ${CI_TAGS} != *'mac-sdk'* ]]; # Mac SDK builds Mono itself
 	then
-	echo ./autogen.sh $EXTRA_CONF_FLAGS
-	${TESTCMD} --label=configure --timeout=60m --fatal ./autogen.sh $EXTRA_CONF_FLAGS
+	echo ./autogen.sh CFLAGS="$CFLAGS $EXTRA_CFLAGS" CXXFLAGS="$CXXFLAGS $EXTRA_CXXFLAGS" LDFLAGS="$LDFLAGS $EXTRA_LDFLAGS" $EXTRA_CONF_FLAGS
+	${TESTCMD} --label=configure --timeout=60m --fatal ./autogen.sh CFLAGS="$CFLAGS $EXTRA_CFLAGS" CXXFLAGS="$CXXFLAGS $EXTRA_CXXFLAGS" LDFLAGS="$LDFLAGS $EXTRA_LDFLAGS" $EXTRA_CONF_FLAGS
 fi
 if [[ ${CI_TAGS} == *'win-i386'* ]];
     then
 	# only build boehm on w32 (only windows platform supporting boehm).
-    ${TESTCMD} --label=make-msvc --timeout=60m --fatal /cygdrive/c/Program\ Files\ \(x86\)/MSBuild/14.0/Bin/MSBuild.exe /p:PlatformToolset=v140 /p:Platform=${PLATFORM} /p:Configuration=Release /p:MONO_TARGET_GC=boehm msvc/mono.sln
+    ${TESTCMD} --label=make-msvc --timeout=60m --fatal /cygdrive/c/Program\ Files\ \(x86\)/MSBuild/14.0/Bin/MSBuild.exe /p:PlatformToolset=v140 /p:Platform=${PLATFORM} /p:Configuration=Release ${MSBUILD_CXX} /p:MONO_TARGET_GC=boehm msvc/mono.sln
 fi
 if [[ ${CI_TAGS} == *'win-'* ]];
     then
-    ${TESTCMD} --label=make-msvc-sgen --timeout=60m --fatal /cygdrive/c/Program\ Files\ \(x86\)/MSBuild/14.0/Bin/MSBuild.exe /p:PlatformToolset=v140 /p:Platform=${PLATFORM} /p:Configuration=Release /p:MONO_TARGET_GC=sgen msvc/mono.sln
+    ${TESTCMD} --label=make-msvc-sgen --timeout=60m --fatal /cygdrive/c/Program\ Files\ \(x86\)/MSBuild/14.0/Bin/MSBuild.exe /p:PlatformToolset=v140 /p:Platform=${PLATFORM} /p:Configuration=Release ${MSBUILD_CXX} /p:MONO_TARGET_GC=sgen msvc/mono.sln
 fi
 
 if [[ ${CI_TAGS} == *'winaot'* ]];
@@ -187,25 +225,12 @@ fi
 
 if [[ ${CI_TAGS} == *'monolite'* ]]; then make get-monolite-latest; fi
 
-make_parallelism=-j4
+make_parallelism="-j ${CI_CPU_COUNT}"
 if [[ ${CI_TAGS} == *'linux-ppc64el'* ]]; then make_parallelism=-j1; fi
 
 make_continue=
 if [[ ${CI_TAGS} == *'checked-all'* ]]; then make_continue=-k; fi
 
-
-# FIXME For now C++ means just build mono (metadata, mini, sgen, utils) and ignore errors to get more.
-# Once this succeeds, we can let it proceed more normally through tests.
-if [[ ${CI_TAGS} == *'cxx'* ]];
-   then
-	${TESTCMD} --label=make --timeout=${make_timeout} --fatal make ${make_parallelism} -k -w -C mono V=1
-        exit 0
-fi
-if [[ ${CI_TAGS} == *'cplusplus'* ]];
-   then
-	${TESTCMD} --label=make --timeout=${make_timeout} --fatal make ${make_parallelism} -k -w -C mono V=1
-        exit 0
-fi
 
 if [[ ${CI_TAGS} != *'mac-sdk'* ]]; # Mac SDK builds Mono itself
 	then

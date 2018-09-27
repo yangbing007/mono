@@ -61,7 +61,6 @@
 #include "interp.h"
 #include "interp-internals.h"
 #include "mintops.h"
-#include "hacks.h"
 
 #include <mono/mini/mini.h>
 #include <mono/mini/mini-runtime.h>
@@ -83,6 +82,30 @@
 #ifdef HAVE_ISFINITE
 #define finite isfinite
 #endif
+#endif
+
+// This should be portable to all C++11 implementations. It is restricted like this to be a smaller change.
+#if defined (__cplusplus) && defined (HOST_ANDROID)
+#include <cmath>
+using std::isfinite;
+using std::isunordered;
+
+// Some Android versions have global isinf
+// and using std::isinf errors, some do not.
+inline bool mono_isinf (float a)
+{
+	return std::isinf (a);
+}
+
+inline bool mono_isinf (double a)
+{
+	return std::isinf (a);
+}
+
+#else
+
+#define mono_isinf(x) isinf (x)
+
 #endif
 
 static inline void
@@ -235,13 +258,27 @@ set_resume_state (ThreadContext *context, InterpFrame *frame)
 static void
 set_context (ThreadContext *context)
 {
-	MonoJitTlsData *jit_tls;
-
 	mono_native_tls_set_value (thread_context_id, context);
-	jit_tls = mono_tls_get_jit_tls ();
-	if (jit_tls)
-		/* jit_tls assumes ownership of 'context' */
-		jit_tls->interp_context = context;
+
+	if (!context)
+		return;
+
+	MonoJitTlsData *jit_tls = mono_tls_get_jit_tls ();
+	g_assertf (jit_tls, "ThreadContext needs initialized JIT TLS");
+
+	/* jit_tls assumes ownership of 'context' */
+	jit_tls->interp_context = context;
+}
+
+static ThreadContext *
+get_context (void)
+{
+	ThreadContext *context = (ThreadContext *) mono_native_tls_get_value (thread_context_id);
+	if (context == NULL) {
+		context = g_new0 (ThreadContext, 1);
+		set_context (context);
+	}
+	return context;
 }
 
 static void
@@ -334,6 +371,33 @@ mono_interp_get_imethod (MonoDomain *domain, MonoMethod *method, MonoError *erro
 	return rtm;
 }
 
+#if defined (MONO_CROSS_COMPILE) || defined (HOST_WASM) || defined (_MSC_VER)
+#define INTERP_PUSH_LMF_WITH_CTX_BODY(ext, exit_addr) /* do nothing */
+#elif defined (MONO_ARCH_HAS_MONO_CONTEXT)
+#define INTERP_PUSH_LMF_WITH_CTX_BODY(ext, exit_addr) \
+	MONO_CONTEXT_GET_CURRENT ((ext).ctx); \
+	MONO_CONTEXT_SET_IP (&(ext).ctx, (exit_addr)); \
+	mono_arch_do_ip_adjustment (&(ext).ctx);
+#else
+#define INTERP_PUSH_LMF_WITH_CTX_BODY(ext, exit_addr) g_error ("requires working mono-context");
+#endif
+
+/* INTERP_PUSH_LMF_WITH_CTX:
+ *
+ * same as interp_push_lmf, but retrieving and attaching MonoContext to it.
+ * This is needed to resume into the interp when the exception is thrown from
+ * native code (see ./mono/tests/install_eh_callback.exe).
+ *
+ * This must be a macro in order to retrieve the right register values for
+ * MonoContext.
+ */
+#define INTERP_PUSH_LMF_WITH_CTX(frame, ext, exit_addr) \
+	memset (&(ext), 0, sizeof (MonoLMFExt)); \
+	(ext).kind = MONO_LMFEXT_INTERP_EXIT_WITH_CTX; \
+	(ext).interp_exit_data = (frame); \
+	INTERP_PUSH_LMF_WITH_CTX_BODY ((ext), (exit_addr)); \
+	mono_push_lmf (&(ext));
+
 /*
  * interp_push_lmf:
  *
@@ -346,7 +410,7 @@ static void
 interp_push_lmf (MonoLMFExt *ext, InterpFrame *frame)
 {
 	memset (ext, 0, sizeof (MonoLMFExt));
-	ext->interp_exit = TRUE;
+	ext->kind = MONO_LMFEXT_INTERP_EXIT;
 	ext->interp_exit_data = frame;
 
 	mono_push_lmf (ext);
@@ -752,7 +816,7 @@ fill_in_trace (MonoException *exception, InterpFrame *frame)
 
 #define EXCEPTION_CHECKPOINT	\
 	do {										\
-		if (*mono_thread_interruption_request_flag ()) {			\
+		if (*mono_thread_interruption_request_flag () && !mono_threads_is_critical_method (rtm->method)) { \
 			MonoException *exc = mono_thread_interruption_checkpoint ();	\
 			if (exc)							\
 				THROW_EX (exc, ip);					\
@@ -768,7 +832,7 @@ ves_array_create (MonoDomain *domain, MonoClass *klass, int param_count, stackva
 	MonoObject *obj;
 	int i;
 
-	lengths = (uintptr_t*)alloca (sizeof (uintptr_t) * m_class_get_rank (klass) * 2);
+	lengths = g_newa (uintptr_t, m_class_get_rank (klass) * 2);
 	for (i = 0; i < param_count; ++i) {
 		lengths [i] = values->data.i;
 		values ++;
@@ -1147,7 +1211,8 @@ interp_frame_arg_set_storage (MonoInterpFrameHandle frame, MonoMethodSignature *
 	}
 }
 
-static MONO_NEVER_INLINE void
+/* MONO_NO_OPTIMIATION is needed due to usage of INTERP_PUSH_LMF_WITH_CTX. */
+static MONO_NO_OPTIMIZATION MONO_NEVER_INLINE void
 ves_pinvoke_method (InterpFrame *frame, MonoMethodSignature *sig, MonoFuncV addr, gboolean string_ctor, ThreadContext *context)
 {
 	MonoLMFExt ext;
@@ -1177,8 +1242,7 @@ ves_pinvoke_method (InterpFrame *frame, MonoMethodSignature *sig, MonoFuncV addr
 #endif
 
 	context->current_frame = frame;
-
-	interp_push_lmf (&ext, frame);
+	INTERP_PUSH_LMF_WITH_CTX (context->current_frame, ext, &&exit_pinvoke);
 #ifdef MONO_ARCH_HAVE_INTERP_PINVOKE_TRAMP
 	mono_interp_to_native_trampoline (addr, &ccontext);
 #else
@@ -1197,6 +1261,8 @@ ves_pinvoke_method (InterpFrame *frame, MonoMethodSignature *sig, MonoFuncV addr
 	g_free (margs->fargs);
 	g_free (margs);
 #endif
+exit_pinvoke:
+	return;
 }
 
 /*
@@ -1267,7 +1333,7 @@ interp_delegate_ctor (MonoObjectHandle this_obj, MonoObjectHandle target, gpoint
 	}
 
 	g_assert (imethod->method);
-	gpointer entry = mini_get_interp_callbacks ()->create_method_pointer (imethod->method, error);
+	gpointer entry = mini_get_interp_callbacks ()->create_method_pointer (imethod->method, FALSE, error);
 	return_if_nok (error);
 
 	MONO_HANDLE_SETVAL (MONO_HANDLE_CAST (MonoDelegate, this_obj), interp_method, gpointer, imethod);
@@ -1428,14 +1494,11 @@ dump_frame (InterpFrame *inv)
 	for (i = 0; inv; inv = inv->parent) {
 		if (inv->imethod != NULL) {
 			MonoMethod *method = inv->imethod->method;
-			MonoClass *k;
 
 			int codep = 0;
 			const char * opname = "";
 			char *name;
 			gchar *source = NULL;
-
-			k = method->klass;
 
 			if ((method->flags & METHOD_ATTRIBUTE_PINVOKE_IMPL) == 0 &&
 				(method->iflags & METHOD_IMPL_ATTRIBUTE_RUNTIME) == 0) {
@@ -1575,11 +1638,10 @@ static MonoObject*
 interp_runtime_invoke (MonoMethod *method, void *obj, void **params, MonoObject **exc, MonoError *error)
 {
 	InterpFrame frame, *old_frame;
-	ThreadContext *context = (ThreadContext*)mono_native_tls_get_value (thread_context_id);
+	ThreadContext *context = get_context ();
 	MonoMethodSignature *sig = mono_method_signature (method);
 	MonoClass *klass = mono_class_from_mono_type (sig->ret);
 	stackval result;
-	stackval *args;
 	MonoMethod *target_method = method;
 
 	error_init (error);
@@ -1588,10 +1650,6 @@ interp_runtime_invoke (MonoMethod *method, void *obj, void **params, MonoObject 
 
 	frame.ex = NULL;
 
-	if (context == NULL) {
-		context = g_new0 (ThreadContext, 1);
-		set_context (context);
-	}
 	old_frame = context->current_frame;
 
 	MonoDomain *domain = mono_domain_get ();
@@ -1603,7 +1661,7 @@ interp_runtime_invoke (MonoMethod *method, void *obj, void **params, MonoObject 
 	//* <code>MonoObject *runtime_invoke (MonoObject *this_obj, void **params, MonoObject **exc, void* method)</code>
 
 	result.data.vt = alloca (mono_class_instance_size (klass));
-	args = (stackval*)alloca (sizeof (stackval) * 4);
+	stackval args [4];
 
 	if (sig->hasthis)
 		args [0].data.p = obj;
@@ -1647,14 +1705,20 @@ interp_entry (InterpEntryData *data)
 {
 	InterpFrame frame;
 	InterpMethod *rmethod = data->rmethod;
-	ThreadContext *context = (ThreadContext*)mono_native_tls_get_value (thread_context_id);
+	ThreadContext *context;
 	InterpFrame *old_frame;
 	stackval result;
 	stackval *args;
 	MonoMethod *method;
 	MonoMethodSignature *sig;
 	MonoType *type;
+	gpointer orig_domain, attach_cookie;
 	int i;
+
+	if (rmethod->needs_thread_attach)
+		orig_domain = mono_threads_attach_coop (mono_domain_get (), &attach_cookie);
+
+	context = get_context ();
 
 	method = rmethod->method;
 	sig = mono_method_signature (method);
@@ -1664,13 +1728,9 @@ interp_entry (InterpEntryData *data)
 	//printf ("%s\n", mono_method_full_name (method, 1));
 
 	frame.ex = NULL;
-	if (context == NULL) {
-		context = g_new0 (ThreadContext, 1);
-		set_context (context);
-	}
 	old_frame = context->current_frame;
 
-	args = (stackval*)alloca (sizeof (stackval) * (sig->param_count + (sig->hasthis ? 1 : 0)));
+	args = g_newa (stackval, sig->param_count + (sig->hasthis ? 1 : 0));
 	if (sig->hasthis)
 		args [0].data.p = data->this_arg;
 
@@ -1721,6 +1781,9 @@ interp_entry (InterpEntryData *data)
 	interp_exec_method (&frame, context);
 	context->current_frame = old_frame;
 
+	if (rmethod->needs_thread_attach)
+		mono_threads_detach_coop (orig_domain, &attach_cookie);
+
 	// FIXME:
 	g_assert (frame.ex == NULL);
 
@@ -1748,11 +1811,12 @@ interp_entry (InterpEntryData *data)
 	}
 }
 
-static MONO_NEVER_INLINE stackval *
+/* MONO_NO_OPTIMIATION is needed due to usage of INTERP_PUSH_LMF_WITH_CTX. */
+static MONO_NO_OPTIMIZATION MONO_NEVER_INLINE stackval *
 do_icall (ThreadContext *context, MonoMethodSignature *sig, int op, stackval *sp, gpointer ptr)
 {
 	MonoLMFExt ext;
-	interp_push_lmf (&ext, context->current_frame);
+	INTERP_PUSH_LMF_WITH_CTX (context->current_frame, ext, &&exit_icall);
 
 	switch (op) {
 	case MINT_ICALL_V_V: {
@@ -1860,6 +1924,7 @@ do_icall (ThreadContext *context, MonoMethodSignature *sig, int op, stackval *sp
 		stackval_from_data (sig->ret, &sp [-1], (char*) &sp [-1].data.p, sig->pinvoke);
 
 	interp_pop_lmf (&ext);
+exit_icall:
 	return sp;
 }
 
@@ -2339,7 +2404,7 @@ static void
 interp_entry_from_trampoline (gpointer ccontext_untyped, gpointer rmethod_untyped)
 {
 	InterpFrame frame;
-	ThreadContext *context = mono_native_tls_get_value (thread_context_id);
+	ThreadContext *context;
 	InterpFrame *old_frame;
 	stackval result;
 	stackval *args;
@@ -2347,16 +2412,18 @@ interp_entry_from_trampoline (gpointer ccontext_untyped, gpointer rmethod_untype
 	MonoMethodSignature *sig;
 	CallContext *ccontext = (CallContext*) ccontext_untyped;
 	InterpMethod *rmethod = (InterpMethod*) rmethod_untyped;
+	gpointer orig_domain, attach_cookie;
 	int i;
+
+	if (rmethod->needs_thread_attach)
+		orig_domain = mono_threads_attach_coop (mono_domain_get (), &attach_cookie);
+
+	context = get_context ();
 
 	method = rmethod->method;
 	sig = mono_method_signature (method);
 
 	frame.ex = NULL;
-	if (context == NULL) {
-		context = g_new0 (ThreadContext, 1);
-		set_context (context);
-	}
 	old_frame = context->current_frame;
 
 	args = (stackval*)alloca (sizeof (stackval) * (sig->param_count + (sig->hasthis ? 1 : 0)));
@@ -2377,6 +2444,9 @@ interp_entry_from_trampoline (gpointer ccontext_untyped, gpointer rmethod_untype
 
 	interp_exec_method (&frame, context);
 	context->current_frame = old_frame;
+
+	if (rmethod->needs_thread_attach)
+		mono_threads_detach_coop (orig_domain, &attach_cookie);
 
 	// FIXME:
 	g_assert (frame.ex == NULL);
@@ -2416,15 +2486,21 @@ interp_no_native_to_managed (void)
  * interpreter. Return NULL for methods which are not supported.
  */
 static gpointer
-interp_create_method_pointer (MonoMethod *method, MonoError *error)
+interp_create_method_pointer (MonoMethod *method, gboolean compile, MonoError *error)
 {
 #ifndef MONO_ARCH_HAVE_INTERP_NATIVE_TO_MANAGED
-	return interp_no_native_to_managed;
+	return (gpointer)interp_no_native_to_managed;
 #else
 	gpointer addr, entry_func, entry_wrapper;
 	MonoDomain *domain = mono_domain_get ();
 	MonoJitDomainInfo *info;
 	InterpMethod *imethod = mono_interp_get_imethod (domain, method, error);
+
+	if (compile) {
+		/* Return any errors from method compilation */
+		mono_interp_transform_method (imethod, get_context (), error);
+		return_val_if_nok (error, NULL);
+	}
 
 	/* HACK: method_ptr of delegate should point to a runtime method*/
 	if (method->wrapper_type && (method->wrapper_type == MONO_WRAPPER_DYNAMIC_METHOD ||
@@ -2460,17 +2536,17 @@ interp_create_method_pointer (MonoMethod *method, MonoError *error)
 #else
 	if (!mono_native_to_interp_trampoline) {
 		if (mono_aot_only) {
-			mono_native_to_interp_trampoline = mono_aot_get_trampoline ("native_to_interp_trampoline");
+			mono_native_to_interp_trampoline = (MonoFuncV)mono_aot_get_trampoline ("native_to_interp_trampoline");
 		} else {
 			MonoTrampInfo *info;
-			mono_native_to_interp_trampoline = mono_arch_get_native_to_interp_trampoline (&info);
+			mono_native_to_interp_trampoline = (MonoFuncV)mono_arch_get_native_to_interp_trampoline (&info);
 			mono_tramp_info_register (info, NULL);
 		}
 	}
-	entry_wrapper = mono_native_to_interp_trampoline;
+	entry_wrapper = (gpointer)mono_native_to_interp_trampoline;
 	/* We need the lmf wrapper only when being called from mixed mode */
 	if (sig->pinvoke)
-		entry_func = interp_entry_from_trampoline;
+		entry_func = (gpointer)interp_entry_from_trampoline;
 	else
 		entry_func = mono_jit_compile_method_jit_only (mini_get_interp_lmf_wrapper (), error);
 #endif
@@ -2561,7 +2637,7 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 	GSList *finally_ips = NULL;
 	const unsigned short *endfinally_ip = NULL;
 	const unsigned short *ip = NULL;
-	register stackval *sp;
+	stackval *sp;
 	InterpMethod *rtm = NULL;
 #if DEBUG_INTERP
 	gint tracing = global_tracing;
@@ -2603,23 +2679,18 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 		do_transform_method (frame, context);
 		if (frame->ex)
 			THROW_EX (frame->ex, NULL);
-		if (*mono_thread_interruption_request_flag ()) {
-			MonoException *exc = mono_thread_interruption_checkpoint ();
-			if (exc)
-				THROW_EX (exc, NULL);
-		}
-
+		EXCEPTION_CHECKPOINT;
 	}
 
 	if (!start_with_ip) {
-		frame->args = (char*)alloca (rtm->alloca_size);
+		frame->args = g_newa (char, rtm->alloca_size);
 		memset (frame->args, 0, rtm->alloca_size);
 
 		ip = rtm->code;
 	} else {
 		ip = start_with_ip;
 		if (base_frame) {
-			frame->args = (char*)alloca (rtm->alloca_size);
+			frame->args = g_newa (char, rtm->alloca_size);
 			memcpy (frame->args, base_frame->args, rtm->alloca_size);
 		}
 	}
@@ -2793,7 +2864,7 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 			 * than the callee stack frame (at the interp level)
 			 */
 			if (realloc_frame) {
-				frame->args = (char*)alloca (rtm->alloca_size);
+				frame->args = g_newa (char, rtm->alloca_size);
 				memset (frame->args, 0, rtm->alloca_size);
 				sp = frame->stack = (stackval *) ((char *) frame->args + rtm->args_size);
 			}
@@ -2909,10 +2980,16 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 				MonoMethod *m;
 
 				/* Pinvoke call is missing the wrapper. See mono_get_native_calli_wrapper */
-				mspecs = (MonoMarshalSpec**)alloca (sizeof (MonoMarshalSpec*) * (csignature->param_count + 1));
+				mspecs = g_new0 (MonoMarshalSpec*, csignature->param_count + 1);
 				memset (&piinfo, 0, sizeof (piinfo));
 
 				m = mono_marshal_get_native_func_wrapper (m_class_get_image (frame->imethod->method->klass), csignature, &piinfo, mspecs, code);
+
+				for (int i = csignature->param_count; i >= 0; i--)
+					if (mspecs [i])
+						mono_metadata_free_marshal_spec (mspecs [i]);
+				g_free (mspecs);
+
 				child_frame.imethod = mono_interp_get_imethod (rtm->domain, m, error);
 				mono_error_cleanup (error); /* FIXME: don't swallow the error */
 
@@ -3687,7 +3764,7 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_CONV_U4_R8)
 			/* needed on arm64 */
-			if (isinf (sp [-1].data.f))
+			if (mono_isinf (sp [-1].data.f))
 				sp [-1].data.i = 0;
 			/* needed by wasm */
 			else if (isnan (sp [-1].data.f))
@@ -3959,16 +4036,12 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 			MINT_IN_BREAK;
 		}
 		MINT_IN_CASE(MINT_NEWOBJ_MAGIC) {
-			guint32 token;
-
 			frame->ip = ip;
-			token = * (guint16 *)(ip + 1);
 			ip += 2;
 
 			MINT_IN_BREAK;
 		}
 		MINT_IN_CASE(MINT_INTRINS_BYREFERENCE_CTOR) {
-			MonoClass *newobj_class;
 			MonoMethodSignature *csig;
 			guint32 token;
 
@@ -3978,7 +4051,6 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 
 			InterpMethod *cmethod = (InterpMethod*)rtm->data_items [token];
 			csig = mono_method_signature (cmethod->method);
-			newobj_class = cmethod->method->klass;
 
 			g_assert (csig->hasthis);
 			sp -= csig->param_count;
@@ -4055,6 +4127,13 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 		MINT_IN_CASE(MINT_CHECKPOINT)
 			/* Do synchronous checking of abort requests */
 			EXCEPTION_CHECKPOINT;
+			++ip;
+			MINT_IN_BREAK;
+		MINT_IN_CASE(MINT_SAFEPOINT)
+			/* Do synchronous checking of abort requests */
+			EXCEPTION_CHECKPOINT;
+			/* Poll safepoint */
+			mono_threads_safepoint ();
 			++ip;
 			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_LDFLDA_UNSAFE)
@@ -4458,7 +4537,7 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 				THROW_EX (mono_get_exception_null_reference (), ip);
 
 			gint32 length = *(gint32 *) (span + offset_length);
-			if (index < 0 || index > length)
+			if (index < 0 || index >= length)
 				THROW_EX (mono_get_exception_index_out_of_range (), ip);
 
 			gpointer pointer = *(gpointer *)(span + offset_pointer);
@@ -5057,28 +5136,6 @@ interp_exec_method_full (InterpFrame *frame, ThreadContext *context, guint16 *st
 			mono_memory_barrier ();
 			MINT_IN_BREAK;
 		}
-		MINT_IN_CASE(MINT_MONO_JIT_ATTACH) {
-			++ip;
-
-			context->original_domain = NULL;
-			MonoDomain *tls_domain = (MonoDomain *) mono_tls_get_domain ();
-			gpointer tls_jit = mono_tls_get_jit_tls ();
-
-			if (tls_domain != rtm->domain || !tls_jit) {
-				context->original_domain = mono_jit_thread_attach (rtm->domain);
-				/*
-				 * Make sure the JitTlsData contains the interp context, in case
-				 * we weren't yet attached at interp_entry time.
-				 */
-				g_assert (context == mono_native_tls_get_value (thread_context_id));
-				set_context (context);
-			}
-			MINT_IN_BREAK;
-		}
-		MINT_IN_CASE(MINT_MONO_JIT_DETACH)
-			++ip;
-			mono_jit_set_domain (context->original_domain);
-			MINT_IN_BREAK;
 		MINT_IN_CASE(MINT_MONO_LDDOMAIN)
 			sp->data.p = mono_domain_get ();
 			++sp;
@@ -5699,13 +5756,17 @@ static gboolean
 interp_run_finally (StackFrameInfo *frame, int clause_index, gpointer handler_ip)
 {
 	InterpFrame *iframe = (InterpFrame*)frame->interp_frame;
-	ThreadContext *context = (ThreadContext*)mono_native_tls_get_value (thread_context_id);
+	ThreadContext *context = get_context ();
+	const unsigned short *old_ip = iframe->ip;
+
 
 	interp_exec_method_full (iframe, context, (guint16*)handler_ip, NULL, clause_index, NULL);
-	if (context->has_resume_state)
+	if (context->has_resume_state) {
 		return TRUE;
-	else
+	} else {
+		iframe->ip = old_ip;
 		return FALSE;
+	}
 }
 
 /*
@@ -5718,7 +5779,7 @@ static gboolean
 interp_run_filter (StackFrameInfo *frame, MonoException *ex, int clause_index, gpointer handler_ip)
 {
 	InterpFrame *iframe = (InterpFrame*)frame->interp_frame;
-	ThreadContext *context = (ThreadContext*)mono_native_tls_get_value (thread_context_id);
+	ThreadContext *context = get_context ();
 	InterpFrame child_frame;
 	stackval retval;
 

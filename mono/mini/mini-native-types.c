@@ -24,9 +24,15 @@ typedef struct {
 
 typedef struct {
 	short op_index;
+#ifdef __cplusplus
+	MonoStackType big_stack_type : 16;
+	MonoStackType small_stack_type : 16;
+	MonoStackType stack_type : 16;
+#else
 	short big_stack_type;
 	short small_stack_type;
 	short stack_type;
+#endif
 	short conv_4_to_8;
 	short conv_8_to_4;
 	short move;
@@ -37,7 +43,7 @@ typedef struct {
 } MagicTypeInfo;
 
 
-#if SIZEOF_VOID_P == 8
+#if TARGET_SIZEOF_VOID_P == 8
 #define OP_PT_ADD OP_LADD
 #define OP_PT_SUB OP_LSUB
 #define OP_PT_MUL OP_LMUL
@@ -138,7 +144,7 @@ type_size (MonoCompile *cfg, MonoType *type)
 		return 4;
 	else if (type->type == MONO_TYPE_R8 && !type->byref)
 		return 8;
-	return SIZEOF_VOID_P;
+	return TARGET_SIZEOF_VOID_P;
 }
 
 #ifndef DISABLE_JIT
@@ -157,7 +163,7 @@ emit_narrow (MonoCompile *cfg, const MagicTypeInfo *info, int sreg)
 		ins->type = cfg->r4_stack_type;
 	else
 		ins->type = info->small_stack_type;
-	ins->dreg = alloc_dreg (cfg, ins->type);
+	ins->dreg = alloc_dreg (cfg, (MonoStackType)ins->type);
 	MONO_ADD_INS (cfg->cbb, ins);
 	return mono_decompose_opcode (cfg, ins);
 }
@@ -184,9 +190,10 @@ emit_intrinsics (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSignature *fsi
 	int i = 0;
 	const char *name = cmethod->name;
 	MonoInst *ins;
-	int type_index, stack_type;
+	int type_index;
+	MonoStackType stack_type;
 
-	if (info->op_index == 2 && cfg->r4fp && SIZEOF_VOID_P == 4) {
+	if (info->op_index == 2 && cfg->r4fp && TARGET_SIZEOF_VOID_P == 4) {
 		type_index = 3;
 		stack_type = STACK_R4;
 	} else {
@@ -228,9 +235,9 @@ emit_intrinsics (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSignature *fsi
 		int arg0 = args [1]->dreg;
 		int arg_size = type_size (cfg, fsig->params [0]);
 
-		if (arg_size > SIZEOF_VOID_P) //8 -> 4
+		if (arg_size > TARGET_SIZEOF_VOID_P) //8 -> 4
 			arg0 = emit_narrow (cfg, info, arg0)->dreg;
-		else if (arg_size < SIZEOF_VOID_P) //4 -> 8
+		else if (arg_size < TARGET_SIZEOF_VOID_P) //4 -> 8
 			arg0 = emit_widen (cfg, info, arg0)->dreg;
 
 		if (is_ldaddr) { /*Eliminate LDADDR if it's initing a local var*/
@@ -253,7 +260,7 @@ emit_intrinsics (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSignature *fsi
 
 		/* We have IR for inc/dec */
 		MONO_INST_NEW (cfg, ins, inc ? info->inc_op : info->dec_op);
-		ins->dreg = alloc_dreg (cfg, info->stack_type);
+		ins->dreg = alloc_dreg (cfg, (MonoStackType)info->stack_type);
 		ins->sreg1 = args [0]->dreg;
 		ins->inst_imm = 1;
 		ins->type = info->stack_type;
@@ -477,7 +484,7 @@ mini_native_type_replace_type (MonoType *type)
 	if (mono_class_is_magic_int (klass))
 		return type->byref ? m_class_get_this_arg (mono_defaults.int_class) : mono_get_int_type ();
 	if (mono_class_is_magic_float (klass))
-#if SIZEOF_VOID_P == 8
+#if TARGET_SIZEOF_VOID_P == 8
 		return type->byref ? m_class_get_this_arg (mono_defaults.double_class) : m_class_get_byval_arg (mono_defaults.double_class);
 #else
 		return type->byref ? m_class_get_this_arg (mono_defaults.single_class) : m_class_get_byval_arg (mono_defaults.single_class);
