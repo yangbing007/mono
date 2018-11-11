@@ -419,6 +419,8 @@ namespace System
 
 		public override Type MakePointerType ()
 		{
+			if (IsByRef)
+				throw new TypeLoadException ($"Could not load type '{GetType()}' from assembly '{AssemblyQualifiedName}");			
 			return MakePointerType (this);
 		}
 
@@ -827,6 +829,12 @@ namespace System
 				return false;
 
 			return RuntimeTypeHandle.IsSubclassOf (this, rtType);
+		}
+
+		public override bool IsByRefLike {
+			get {
+				return RuntimeTypeHandle.IsByRefLike (this);
+			}
 		}
 	}
 }

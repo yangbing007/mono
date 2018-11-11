@@ -167,6 +167,13 @@ endef
 
 $(foreach check,$(BCL_CHECKS),$(eval $(call BCLTestAssemblyTemplate,$(check))))
 
+# corlib tests need additional resource assemblies
+app/assets/asm/monodroid_corlib_test.dll: app/assets/asm/es-ES/monodroid_corlib_test.resources.dll app/assets/asm/nn-NO/monodroid_corlib_test.resources.dll
+
+app/assets/asm/%/monodroid_corlib_test.resources.dll: $(TOP)/mcs/class/lib/monodroid/tests/%/monodroid_corlib_test.resources.dll
+	mkdir -p $(dir $@)
+	cp $< $@
+
 ## Package the mini test assembly
 
 MINI_TEST_SOURCES= \
@@ -192,14 +199,14 @@ package: app/assets/asm/monodroid_mini_test.dll
 
 ## Package Mono.Debugger.Soft test assemblies
 
-.PHONY: $(TOP)/mcs/class/Mono.Debugger.Soft/dtest-app.exe $(TOP)/mcs/class/Mono.Debugger.Soft/dtest-app.pdb
-$(TOP)/mcs/class/Mono.Debugger.Soft/dtest-app.exe $(TOP)/mcs/class/Mono.Debugger.Soft/dtest-app.pdb:
-	$(MAKE) PROFILE='monodroid' -C $(TOP)/mcs/class/Mono.Debugger.Soft dtest-app.exe
+.PHONY: $(TOP)/mcs/class/lib/monodroid/tests/dtest-app.exe $(TOP)/mcs/class/lib/monodroid/tests/dtest-app.pdb
+$(TOP)/mcs/class/lib/monodroid/tests/dtest-app.exe $(TOP)/mcs/class/lib/monodroid/tests/dtest-app.pdb:
+	$(MAKE) PROFILE='monodroid' -C $(TOP)/mcs/class/Mono.Debugger.Soft build-dtest
 
-app/assets/asm/dtest-app.exe: $(TOP)/mcs/class/Mono.Debugger.Soft/dtest-app.exe
+app/assets/asm/dtest-app.exe: $(TOP)/mcs/class/lib/monodroid/tests/dtest-app.exe
 	cp $< $@
 
-app/assets/asm/dtest-app.pdb: $(TOP)/mcs/class/Mono.Debugger.Soft/dtest-app.pdb
+app/assets/asm/dtest-app.pdb: $(TOP)/mcs/class/lib/monodroid/tests/dtest-app.pdb
 	cp $< $@
 
 package: app/assets/asm/dtest-app.exe app/assets/asm/dtest-app.pdb

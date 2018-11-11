@@ -363,10 +363,10 @@ typedef struct ucontext {
 #elif defined(__FreeBSD__)
 	typedef ucontext_t os_ucontext;
 
-	#define UCONTEXT_REG_Rn(ctx, n)   ((ctx)->uc_mcontext.mc_gpr [(n)])
-	#define UCONTEXT_REG_FPRn(ctx, n) ((ctx)->uc_mcontext.mc_fpreg [(n)])
-	#define UCONTEXT_REG_NIP(ctx)     ((ctx)->uc_mcontext.mc_srr0)
-	#define UCONTEXT_REG_LNK(ctx)     ((ctx)->uc_mcontext.mc_lr)
+	#define UCONTEXT_REG_Rn(ctx, n)   (((os_ucontext*)(ctx))->uc_mcontext.mc_gpr [(n)])
+	#define UCONTEXT_REG_FPRn(ctx, n) (((os_ucontext*)(ctx))->uc_mcontext.mc_fpreg [(n)])
+	#define UCONTEXT_REG_NIP(ctx)     (((os_ucontext*)(ctx))->uc_mcontext.mc_srr0)
+	#define UCONTEXT_REG_LNK(ctx)     (((os_ucontext*)(ctx))->uc_mcontext.mc_lr)
 #elif defined(_AIX)
 	typedef ucontext_t os_ucontext;
 
@@ -531,6 +531,28 @@ typedef struct ucontext
 # endif
 
 # define UCONTEXT_GREGS(ctx)	(((ucontext_t *)(ctx))->uc_mcontext.gregs)
+#endif
+
+#elif defined (TARGET_RISCV)
+
+#if defined(MONO_CROSS_COMPILE)
+
+#define UCONTEXT_GREGS(ctx) (NULL)
+#define UCONTEXT_FREGS(ctx) (NULL)
+#define UCONTEXT_REG_PC(ctx) (NULL)
+#define UCONTEXT_REG_BP(ctx) (NULL)
+#define UCONTEXT_REG_SP(ctx) (NULL)
+
+#else
+
+#include <ucontext.h>
+
+#define UCONTEXT_GREGS(ctx) (((ucontext_t *) (ctx))->uc_mcontext.gregs)
+#define UCONTEXT_FREGS(ctx) (((ucontext_t *) (ctx))->uc_mcontext.fpregs)
+#define UCONTEXT_REG_PC(ctx) (UCONTEXT_GREGS ((ctx)) [REG_PC])
+#define UCONTEXT_REG_BP(ctx) (UCONTEXT_GREGS ((ctx)) [REG_S0])
+#define UCONTEXT_REG_SP(ctx) (UCONTEXT_GREGS ((ctx)) [REG_SP])
+
 #endif
 
 #endif

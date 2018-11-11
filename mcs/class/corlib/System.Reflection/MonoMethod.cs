@@ -229,7 +229,8 @@ namespace System.Reflection {
 			return get_base_method (this, true);
 		}
 
-		internal override MethodInfo GetBaseMethod ()
+		// TODO: Remove, needed only for MonoCustomAttribute
+		internal MethodInfo GetBaseMethod ()
 		{
 			return get_base_method (this, false);
 		}
@@ -328,6 +329,8 @@ namespace System.Reflection {
 				} catch (MethodAccessException) {
 					throw;
 #endif
+				} catch (OverflowException) {
+					throw;
 				} catch (Exception e) {
 					throw new TargetInvocationException (e);
 				}
@@ -799,6 +802,8 @@ namespace System.Reflection {
 				} catch (MethodAccessException) {
 					throw;
 #endif
+				} catch (OverflowException) {
+					throw;
 				} catch (Exception e) {
 					throw new TargetInvocationException (e);
 				}
@@ -878,20 +883,7 @@ namespace System.Reflection {
 		}
 
 		public override string ToString () {
-			StringBuilder sb = new StringBuilder ();
-			sb.Append ("Void ");
-			sb.Append (Name);
-			sb.Append ("(");
-			ParameterInfo[] p = GetParameters ();
-			for (int i = 0; i < p.Length; ++i) {
-				if (i > 0)
-					sb.Append (", ");
-				sb.Append (p[i].ParameterType.Name);
-			}
-			if (CallingConvention == CallingConventions.Any)
-				sb.Append (", ...");
-			sb.Append (")");
-			return sb.ToString ();
+			return "Void " + FormatNameAndSig (false);
 		}
 
 		public override IList<CustomAttributeData> GetCustomAttributesData () {

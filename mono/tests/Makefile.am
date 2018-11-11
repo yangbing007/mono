@@ -203,6 +203,10 @@ if HYBRID_AOT_TESTS
 PROFILE_MCS_FLAGS = -d:MOBILE,MOBILE_LEGACY 
 endif
 
+if AOT_FULL_INTERP_TESTS
+PROFILE_MCS_FLAGS = -d:MOBILE,MOBILE_LEGACY
+endif
+
 MCS_NO_UNSAFE = $(TOOLS_RUNTIME) $(CSC) -debug:portable \
 	-noconfig -nologo \
 	-nowarn:0162 -nowarn:0168 -nowarn:0219 -nowarn:0414 -nowarn:0618 \
@@ -307,6 +311,7 @@ TESTS_CS_SRC=		\
 	exception16.cs		\
 	exception17.cs		\
 	exception18.cs		\
+	exception-invokes.cs		\
 	exception19.cs		\
 	exception20.cs		\
 	typeload-unaligned.cs	\
@@ -397,6 +402,7 @@ TESTS_CS_SRC=		\
 	delegate13.cs		\
 	delegate14.cs		\
 	delegate15.cs		\
+	delegate16.cs		\
 	largeexp.cs		\
 	largeexp2.cs		\
 	marshalbyref1.cs	\
@@ -434,10 +440,8 @@ TESTS_CS_SRC=		\
 	threadpool.cs		\
 	threadpool1.cs		\
 	threadpool-exceptions1.cs \
-	threadpool-exceptions2.cs \
 	threadpool-exceptions3.cs \
 	threadpool-exceptions4.cs \
-	threadpool-exceptions5.cs \
 	threadpool-exceptions6.cs \
 	base-definition.cs	\
 	bug-27420.cs		\
@@ -690,7 +694,9 @@ TESTS_CS_SRC=		\
 	nested_type_visibility.cs	\
 	dynamic-method-churn.cs	\
 	verbose.cs \
-	generic-unmanaged-constraint.cs
+	generic-unmanaged-constraint.cs \
+	bug-10834.cs \
+	bug-gh-9507.cs
 
 # some tests fail to compile on mcs
 if CSC_IS_ROSLYN
@@ -982,7 +988,8 @@ TESTS_IL_SRC=			\
 	tailcall-return-valuetype.il \
 	tailcall-valuetype-parameter.il \
 	ldfldvt.il \
-	newobj-abstract.il
+	newobj-abstract.il \
+	invalid-isbyreflike.il
 
 # This test crashes the runtime, even with recent fixes.
 #	incorrect-ldvirtftn-read-behind-for-dup.il
@@ -1055,6 +1062,12 @@ PLATFORM_DISABLED_TESTS += bug-58782-plain-throw.exe bug-58782-capture-and-throw
 PLATFORM_DISABLED_TESTS += verbose.exe
 endif
 
+if HOST_DARWIN
+
+# see https://github.com/mono/mono/issues/10845
+PLATFORM_DISABLED_TESTS += monitor-wait-abort.exe
+endif
+
 if AMD64
 # #651684
 PLATFORM_DISABLED_TESTS += finally_guard.exe
@@ -1071,8 +1084,7 @@ if HOST_WIN32
 PLATFORM_DISABLED_TESTS += async-exc-compilation.exe finally_guard.exe finally_block_ending_in_dead_bb.exe \
 	bug-18026.exe monitor.exe threadpool-exceptions5.exe process-unref-race.exe w32message.exe \
 	unhandled-exception-1.exe unhandled-exception-2.exe unhandled-exception-3.exe unhandled-exception-4.exe \
-	unhandled-exception-5.exe unhandled-exception-6.exe unhandled-exception-7.exe unhandled-exception-8.exe \
-	thread-suspend-suspended.exe thread-suspend-selfsuspended.exe
+	unhandled-exception-5.exe unhandled-exception-6.exe unhandled-exception-7.exe unhandled-exception-8.exe
 endif
 
 # test_virt.exe fails because callee takes more parameters than caller, 1 vs. 0, and
@@ -1256,7 +1268,8 @@ PROFILE_DISABLED_TESTS += \
 	resolve_type_bug.2.exe \
 	bug-81691.exe \
 	bug-327438.2.exe \
-	newobj-abstract.exe
+	newobj-abstract.exe \
+	invalid-isbyreflike.exe
 
 # Tests which rely on remoting
 PROFILE_DISABLED_TESTS += \
@@ -1476,12 +1489,44 @@ PROFILE_DISABLED_TESTS += tailcall/fsharp-deeptail/TailCallLoopGenericClassAndMe
 PROFILE_DISABLED_TESTS += tailcall/fsharp-deeptail/TailCallLoopGenericClassAndMethodAbstractInterface_int_.Method1_string_.exe
 
 endif # MONO_ARCH_GSHAREDVT_SUPPORTED
+
+if ARM64
+# Times out on ARM64.
+# https://github.com/mono/mono/issues/10783
+# https://jenkins.mono-project.com/job/test-mono-pull-request-arm64-fullaot+llvm/486/parsed_console/log.html
+# https://jenkins.mono-project.com/job/test-mono-pull-request-arm64-fullaot+llvm/471/parsed_console/log.html
+PLATFORM_DISABLED_TESTS += tailcall/2.exe
+endif # ARM64 FullAOT
+
 endif # FULL_AOT_TESTS
 
 if HYBRID_AOT_TESTS
 PROFILE_DISABLED_TESTS += \
 	bug-80307.exe \
 	namedmutex-destroy-race.exe
+endif
+
+if AOT_FULL_INTERP_TESTS
+PROFILE_DISABLED_TESTS += \
+	appdomain-async-invoke.exe \
+	appdomain-unload-callback.exe \
+	appdomain-unload.exe \
+	appdomain-unload-doesnot-raise-pending-events.exe \
+	appdomain-serialize-exception.exe \
+	appdomain-thread-abort.exe \
+	bug-322722_dyn_method_throw.2.exe \
+	bug-80307.exe \
+	bug-70561.exe \
+	xdomain-threads.exe \
+	thread6.exe \
+	marshal2.exe \
+	transparentproxy.exe \
+	unload-appdomain-on-shutdown.exe \
+	remoting4.exe \
+	threadpool-exceptions2.exe \
+	threadpool-exceptions4.exe \
+	threadpool-exceptions5.exe \
+	threadpool-exceptions7.exe
 endif
 
 AOT_DISABLED_TESTS= \
@@ -1500,6 +1545,21 @@ CI_PR_DISABLED_TESTS =
 
 # FIXME Hybrid Suspend - see https://github.com/mono/mono/issues/9959
 # CI_PR_DISABLED_TESTS += sgen-new-threads-collect.exe
+
+# https://github.com/mono/mono/issues/8997
+CI_PR_DISABLED_TESTS += finalizer-thread.exe
+
+# https://github.com/mono/mono/issues/11392
+CI_PR_DISABLED_TESTS += appdomain-threadpool-unload.exe
+
+# https://github.com/mono/mono/issues/11415
+CI_PR_DISABLED_TESTS += finalizer-abort.exe
+
+# https://github.com/mono/mono/issues/11420
+CI_PR_DISABLED_TESTS += process-stress-2.exe
+
+# https://github.com/mono/mono/issues/11417
+CI_PR_DISABLED_TESTS += process-stress-3.exe
 
 # appdomain-threadpool-unload.exe creates 100 appdomains, takes too long with llvm
 LLVM_DISABLED_TESTS = \
@@ -1755,7 +1815,6 @@ INTERP_DISABLED_TESTS += \
 	delegate-async-exit.exe \
 	delegate-delegate-exit.exe \
 	delegate-exit.exe \
-	delegate-with-null-target.exe \
 	delegate1.exe \
 	delegate3.exe \
 	delegate5.exe \
@@ -1793,7 +1852,6 @@ if ARM64
 INTERP_DISABLED_TESTS += \
 	bug-48015.exe \
 	bug-80307.exe \
-	delegate-with-null-target.exe \
 	dim-diamondshape.exe \
 	pinvoke3.exe
 endif
@@ -1804,7 +1862,6 @@ INTERP_DISABLED_TESTS += \
 	bug-48015.exe \
 	bug-60862.exe \
 	cominterop.exe \
-	delegate-with-null-target.exe \
 	dim-diamondshape.exe \
 	pinvoke3.exe
 endif
@@ -1856,7 +1913,9 @@ tailcall/coreclr/JIT/opt/Tailcall/TailcallVerifyWithPrefix.exe: \
 
 if !FULL_AOT_TESTS
 if !HYBRID_AOT_TESTS
+if !AOT_FULL_INTERP_TESTS
 TEST_DRIVER_HARD_KILL_FEATURE=-r:$(CLASS)/Mono.Posix.dll
+endif
 endif
 endif
 
@@ -2003,6 +2062,9 @@ testtrace:
 
 testinterp: test-runner.exe compile-tests
 	$(TOOLS_RUNTIME) --debug $(TEST_RUNNER) -j a --runtime-args "--interpreter" --testsuite-name "runtime-interp" --timeout 300 --disabled "$(INTERP_DISABLED_TESTS)" $(TESTS_CS) $(TESTS_IL) $(TESTS_BENCH)
+
+testfullaotinterp: test-runner.exe compile-tests
+	$(TOOLS_RUNTIME) --debug $(TEST_RUNNER) -j a --runtime-args "--full-aot-interp" --testsuite-name "runtime-aot-interp" --timeout 300 --disabled "$(INTERP_DISABLED_TESTS)" $(TESTS_CS) $(TESTS_IL) $(TESTS_BENCH)
 
 testjitspeed: $(JITTEST_PROG) compile-tests
 	for i in $(TESTS_BENCH); do	\
@@ -2845,7 +2907,9 @@ TESTS_UNHANDLED_EXCEPTION_255_SRC =	\
 	unhandled-exception-5.cs	\
 	unhandled-exception-6.cs	\
 	unhandled-exception-7.cs	\
-	unhandled-exception-8.cs
+	unhandled-exception-8.cs	\
+	threadpool-exceptions2.cs	\
+	threadpool-exceptions5.cs
 
 TESTS_UNHANDLED_EXCEPTION_1=$(filter-out $(DISABLED_TESTS),$(TESTS_UNHANDLED_EXCEPTION_1_SRC:.cs=.exe))
 TESTS_UNHANDLED_EXCEPTION_255=$(filter-out $(DISABLED_TESTS),$(TESTS_UNHANDLED_EXCEPTION_255_SRC:.cs=.exe))
