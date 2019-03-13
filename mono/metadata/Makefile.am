@@ -226,6 +226,7 @@ endif
 common_sources = \
 	$(platform_sources)	\
 	appdomain.c	\
+	assemblyloadcontext.c \
 	domain.c	\
 	appdomain-icalls.h	\
 	assembly.c		\

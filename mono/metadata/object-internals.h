@@ -1033,6 +1033,17 @@ struct _MonoReflectionAssembly {
 	MonoObject *evidence;	/* Evidence */
 };
 
+/* System.Runtime.Loader.AssemblyLoadContext.  Keep in sync with shared partition System.Runtime.Loaded.AssemblyLoadContext */
+struct _MonoReflectionAssemblyLoadContext {
+	MonoObject object;
+	gint32 internal_state;
+	gint64 id;
+	MonoObject *unloadLock;
+	gpointer native_asmctx;
+};
+
+TYPED_HANDLE_DECL (MonoReflectionAssemblyLoadContext);
+
 typedef struct {
 	MonoReflectionType *utype;
 	MonoArray *values;

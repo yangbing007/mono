@@ -12,6 +12,9 @@ using System.Threading;
 
 namespace System.Runtime.Loader
 {
+#if MONO
+    [StructLayout(LayoutKind.Sequential)]
+#endif
     public abstract partial class AssemblyLoadContext
     {
         private enum InternalState
@@ -32,6 +35,7 @@ namespace System.Runtime.Loader
         private static long s_nextId;
         private static bool s_isProcessExiting;
 
+#region keep in sync with object-internals.h
         // Indicates the state of this ALC (Alive or in Unloading state)
         private InternalState _state;
 
@@ -43,6 +47,7 @@ namespace System.Runtime.Loader
 
         // Contains the reference to VM's representation of the AssemblyLoadContext
         private readonly IntPtr _nativeAssemblyLoadContext;
+#endregion keep in sync with object-internals.h
 
         protected AssemblyLoadContext() : this(false, false)
         {

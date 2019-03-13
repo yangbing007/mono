@@ -7,10 +7,9 @@ namespace System.Runtime.Loader
 {
 	partial class AssemblyLoadContext
 	{
-		static IntPtr InitializeAssemblyLoadContext (IntPtr assemblyLoadContext, bool representsTPALoadContext, bool isCollectible)
-		{
-			return IntPtr.Zero;
-		}
+
+		[MethodImplAttribute (MethodImplOptions.InternalCall)]
+		extern static IntPtr InitializeAssemblyLoadContext (IntPtr gcHandleAssemblyLoadContext, bool representsTPALoadContext, bool isCollectible);
 
 		static void PrepareForAssemblyLoadContextRelease (IntPtr nativeAssemblyLoadContext, IntPtr assemblyLoadContextStrong)
 		{
