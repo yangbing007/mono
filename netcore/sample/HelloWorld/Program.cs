@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Reflection;
 using System.Runtime.Loader;
 
 namespace HelloWorld
@@ -9,7 +10,14 @@ namespace HelloWorld
         {
             Console.WriteLine("Hello World!");
 
-	    var _ = AssemblyLoadContext.Default;
+	    var ctx = AssemblyLoadContext.Default;
+
+	    var aname = new AssemblyName ("System.Collections.NonGeneric");
+#if false
+	    Assembly.Load (aname); /* this still has null as the load */
+#else
+	    ctx.LoadFromAssemblyName  (aname);
+#endif
 
             Console.WriteLine(typeof(object).Assembly.FullName);
             Console.WriteLine(System.Reflection.Assembly.GetEntryAssembly ());
