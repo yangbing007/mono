@@ -28,6 +28,7 @@
 #include <mono/utils/mono-tls.h>
 #include <mono/utils/mono-mmap.h>
 #include <mono/utils/mono-threads.h>
+#include <mono/metadata/assemblyloadcontext.h>
 #include <mono/metadata/object.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/domain-internals.h>
@@ -1112,6 +1113,16 @@ mono_domain_free (MonoDomain *domain, gboolean force)
 	domain->env = NULL;
 
 	mono_reflection_cleanup_domain (domain);
+
+	/* can't decide if this needs to be done early so the gchandles to the
+	 * managed ALCs go away, or late once we start unloading assemblies.  I
+	 * think early - assembly unloading shouldn't care about ALCs.
+	 */
+	if (domain->alcs) {
+		MonoAssemblyLoadContextOwner *domain_alcs = domain->alcs;
+		domain->alcs = NULL;
+		mono_assembly_load_context_owner_free (domain_alcs);
+	}
 
 	/* This must be done before type_hash is freed */
 	if (domain->class_vtable_array) {

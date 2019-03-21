@@ -329,6 +329,8 @@ typedef struct _MonoThunkFreeList {
 
 typedef struct _MonoJitCodeHash MonoJitCodeHash;
 
+typedef struct _MonoAssemblyLoadContextOwner MonoAssemblyLoadContextOwner;
+
 struct _MonoDomain {
 	/*
 	 * This lock must never be taken before the loader lock,
@@ -451,6 +453,8 @@ struct _MonoDomain {
 	gboolean throw_unobserved_task_exceptions;
 
 	guint32 execution_context_field_offset;
+
+	MonoAssemblyLoadContextOwner *alcs;
 };
 
 typedef struct  {

@@ -7,23 +7,92 @@
 #include <config.h>
 #include <glib.h>
 
+#include <mono/metadata/assemblyloadcontext.h>
 #include <mono/metadata/icall-decl.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/utils/mono-error-internals.h>
+#include <mono/utils/mono-logger-internals.h>
 
 #ifdef ENABLE_NETCORE
 
 gpointer
 ves_icall_System_Runtime_Loader_AssemblyLoadContext_InitializeAssemblyLoadContext (gpointer netcore_gchandle, MonoBoolean isTPA, MonoBoolean collectible, MonoError *error)
 {
+	MonoDomain *domain = mono_domain_get ();
 	guint32 gchandle = GPOINTER_TO_UINT (netcore_gchandle) >> 1;
-	g_warning ("registering assembly load context (global handle = %p, tpa = %s, collectible = %s)\n", gchandle, isTPA ? "true" : "false", collectible ? "true" : "false");
-	printf ("gchandle points to %p\n", mono_gchandle_get_target_internal (gchandle));
 	MonoReflectionAssemblyLoadContextHandle alc_obj = MONO_HANDLE_CAST (MonoReflectionAssemblyLoadContext, mono_gchandle_get_target_handle (gchandle));
 	g_assert (!MONO_HANDLE_IS_NULL (alc_obj));
-	gpointer asmctx = MONO_HANDLE_GETVAL (alc_obj, native_asmctx);
-	g_assert (asmctx == NULL);
-	return NULL;
+	gpointer alc = MONO_HANDLE_GETVAL (alc_obj, native_asmctx);
+	g_assert (alc == NULL);
+
+	g_assert (!collectible); /*TODO: needs mono_gchandle_weak_from_handle once we want to support collectible ALCs */
+
+	/* native assembly load context struct will own this gchandle */
+	guint32 new_handle;
+	MonoAssemblyContextKind kind;
+
+	new_handle = mono_gchandle_from_handle (MONO_HANDLE_CAST (MonoObject, alc_obj), FALSE);
+	kind = isTPA ? MONO_ASMCTX_DEFAULT : MONO_ASMCTX_INDIVIDUAL;
+	
+	alc = mono_domain_create_assembly_load_context (domain, new_handle, kind, collectible, error);
+	mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Created MonoAssemblyLoadContext %p (collectible = %s, isTPA = %s)",
+		    alc, collectible ? "true" : "false", isTPA ? "true" : "false");
+	return alc; /* managed sets alc_obj->native_asmctx to point to alc */
 }
 
 #endif /* ENABLE_NETCORE */
+
+#ifdef ENABLE_ASSEMBLY_LOAD_CONTEXT
+
+/**
+ * The memory is allocated from the domain's mempool
+ * 
+ * LOCKING: takes the domain lock
+ */
+MonoAssemblyLoadContext *
+mono_domain_create_assembly_load_context (MonoDomain *domain, guint32 handle, MonoAssemblyContextKind kind, gboolean collectible, MonoError *error)
+{
+	MonoAssemblyLoadContext *alc = (MonoAssemblyLoadContext*) mono_domain_alloc0 (domain, sizeof (MonoAssemblyLoadContext));
+	alc->kind = kind;
+	alc->collectible = collectible;
+	g_assert (handle);
+	alc->handle = handle;
+	mono_domain_lock (domain);
+	if (!domain->alcs) {
+		domain->alcs = mono_domain_alloc0 (domain, sizeof (MonoAssemblyLoadContextOwner));
+	}
+	if (kind == MONO_ASMCTX_DEFAULT) {
+		g_assert (domain->alcs->default_ctx == NULL);
+		domain->alcs->default_ctx = alc;
+	}
+	if (G_UNLIKELY  (collectible))
+		g_warning ("Mono does not support collectible AssemblyLoadContexts.  AssemblyLoadContext %p will not be collected.", alc);
+	domain->alcs->alcs = g_slist_prepend (domain->alcs->alcs, alc);
+	mono_domain_unlock (domain);
+	return alc;
+}
+
+void
+mono_assembly_load_context_free (MonoAssemblyLoadContext *alc)
+{
+	mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Freeing AssemblyLoadContext %p", alc);
+	if (alc->handle)
+		mono_gchandle_free_internal (alc->handle);
+}
+
+#endif /* ENABLE_ASSEMBLY_LOAD_CONTEXT */
+
+void
+mono_assembly_load_context_owner_free (MonoAssemblyLoadContextOwner *owner)
+{
+#ifdef ENABLE_ASSEMBLY_LOAD_CONTEXT
+	if (owner->default_ctx)
+		owner->default_ctx = NULL;
+	GSList *ptr = owner->alcs;
+	owner->alcs = NULL;
+	while (ptr) {
+		mono_assembly_load_context_free ((MonoAssemblyLoadContext *)ptr->data);
+		ptr = ptr->next;
+	}
+#endif
+}

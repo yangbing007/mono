@@ -40,6 +40,7 @@
 #include <mono/metadata/class-init.h>
 #include <mono/metadata/domain-internals.h>
 #include "mono/metadata/metadata-internals.h"
+#include <mono/metadata/assemblyloadcontext.h>
 #include <mono/metadata/assembly-internals.h>
 #include <mono/metadata/exception.h>
 #include <mono/metadata/exception-internals.h>
@@ -2342,20 +2343,31 @@ ves_icall_System_Reflection_Assembly_InternalLoad (MonoStringHandle name_handle,
 	MonoImageOpenStatus status = MONO_IMAGE_OK;
 	gboolean parsed;
 	char *name;
+	MonoAssemblyLoadContext *alc = (MonoAssemblyLoadContext *)load_Context;
 
-	asmctx = MONO_ASMCTX_DEFAULT;
-	mono_assembly_request_prepare (&req.request, sizeof (req), asmctx);
-	req.basedir = NULL;
-	req.no_postload_search = TRUE;
+	if (alc)
+		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "InternalLoad: MonoAssemblyLoadContext %p (kind = %s)", alc, alc->kind == MONO_ASMCTX_DEFAULT ? "default" : "other"); /* TODO: mono_assembly_load_context_get_name () */
+
 
 	name = mono_string_handle_to_utf8 (name_handle, error);
 	goto_if_nok (error, fail);
+
 	parsed = mono_assembly_name_parse (name, &aname);
 	g_free (name);
 	if (!parsed)
 		goto fail;
 
-	ass = mono_assembly_request_byname (&aname, &req, &status);
+	if (alc == NULL || alc->kind == MONO_ASMCTX_DEFAULT) {
+		asmctx = MONO_ASMCTX_DEFAULT;
+		mono_assembly_request_prepare (&req.request, sizeof (req), asmctx);
+		req.basedir = NULL;
+		req.no_postload_search = TRUE;
+
+		ass = mono_assembly_request_byname (&aname, &req, &status);
+	} else {
+		g_warning ("Non-default AssemblyLoadContext %p (kind %d) is trying to load something", alc, (int)alc->kind);
+	}
+
 	if (!ass)
 		goto fail;
 

@@ -227,6 +227,7 @@ common_sources = \
 	$(platform_sources)	\
 	appdomain.c	\
 	assemblyloadcontext.c \
+	assemblyloadcontext.h \
 	domain.c	\
 	appdomain-icalls.h	\
 	assembly.c		\
