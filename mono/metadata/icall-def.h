@@ -884,7 +884,7 @@ HANDLES(WINDOWSRUNTIME_UNM_5, "WindowsGetStringRawBuffer", ves_icall_System_Runt
 #if ENABLE_NETCORE
 ICALL_TYPE(ALC, "System.Runtime.Loader.AssemblyLoadContext", ALC_2)
 HANDLES(ALC_2, "InitializeAssemblyLoadContext", ves_icall_System_Runtime_Loader_AssemblyLoadContext_InitializeAssemblyLoadContext, gpointer, 3,  (gpointer, MonoBoolean, MonoBoolean))
-HANDLES(ALC_1, "InternalLoadFile", ves_icall_System_Reflection_Assembly_LoadFile_internal, MonoReflectionAssembly, 2, (MonoString, MonoStackCrawlMark_ptr))
+HANDLES(ALC_1, "InternalLoadFile", ves_icall_System_Runtime_Loader_AssemblyLoadContext_InternalLoadFile, MonoReflectionAssembly, 2, (MonoString, gpointer))
 #endif
 
 ICALL_TYPE(ACTS, "System.Runtime.Remoting.Activation.ActivationServices", ACTS_1)

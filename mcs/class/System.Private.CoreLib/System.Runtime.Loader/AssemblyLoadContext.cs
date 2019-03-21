@@ -23,11 +23,9 @@ namespace System.Runtime.Loader
 		[System.Security.DynamicSecurityMethod] // Methods containing StackCrawlMark local var has to be marked non-inlineable        
 		Assembly InternalLoadFromPath (string assemblyPath, string nativeImagePath)
 		{
-			StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
-
 			assemblyPath = assemblyPath.Replace ('\\', Path.DirectorySeparatorChar);
 			// TODO: Handle nativeImagePath
-			return InternalLoadFile (assemblyPath, ref stackMark);
+			return InternalLoadFile (assemblyPath, _nativeAssemblyLoadContext);
 		}
 
 		internal Assembly InternalLoad (byte[] arrAssembly, byte[] arrSymbols)
@@ -54,7 +52,7 @@ namespace System.Runtime.Loader
 		}
 
 		[MethodImplAttribute (MethodImplOptions.InternalCall)]
-		extern static Assembly InternalLoadFile (string assemblyFile, ref StackCrawlMark stackMark);
+		extern static Assembly InternalLoadFile (string assemblyFile, IntPtr nativeALC);
 
 		internal static Assembly DoAssemblyResolve (string name)
 		{
