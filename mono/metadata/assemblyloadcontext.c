@@ -83,6 +83,16 @@ leave:
 	return result;
 }
 
+gpointer
+ves_icall_System_Runtime_AssemblyLoadContext_GetLoadContextForAssembly (MonoReflectionAssemblyHandle refassm, MonoError *error)
+{
+	MonoAssembly *assm = MONO_HANDLE_GETVAL (refassm, assembly);
+	g_assert (assm);
+
+	mono_error_set_not_implemented (error, "AssemblyLoadContext.GetLoadContextForAssembly");
+	return NULL;
+}
+
 #endif /* ENABLE_NETCORE */
 
 #ifdef ENABLE_ASSEMBLY_LOAD_CONTEXT
