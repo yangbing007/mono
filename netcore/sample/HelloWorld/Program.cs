@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Reflection;
+using System.Runtime.Loader;
 
 namespace HelloWorld
 {
@@ -22,8 +23,8 @@ namespace HelloWorld
 
             var asm2 = Assembly.LoadFile(p);
 
-	    Console.WriteLine ("asm1 = <<{0}>> : {1}", asm1.FullName, asm1.GetType().FullName);
-	    Console.WriteLine ("asm2 = <<{0}>> : {1}", asm2.FullName, asm2.GetType().FullName);
+	    Console.WriteLine ("asm1 = <<{0}>> : {1} from {2}", asm1.FullName, asm1.GetType().FullName, AssemblyLoadContext.GetLoadContext (asm1));
+	    Console.WriteLine ("asm2 = <<{0}>> : {1} from {2}", asm2.FullName, asm2.GetType().FullName, AssemblyLoadContext.GetLoadContext (asm2));
 
 	    /* on .NET Framework this prints True, True */
             Console.WriteLine("are they equal? {0}", asm1 == asm2);

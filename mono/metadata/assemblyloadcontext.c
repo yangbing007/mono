@@ -83,11 +83,69 @@ leave:
 	return result;
 }
 
+MonoReflectionAssemblyHandle
+ves_icall_System_Reflection_Assembly_InternalLoad (MonoStringHandle name_handle, MonoStackCrawlMark *stack_mark, gpointer load_Context, MonoError *error)
+{
+	/* XXX TODO: See https://github.com/dotnet/coreclr/blob/2520798548b0c414f513aaaf708399f8ef5a4f6c/src/vm/assemblynative.cpp#L36
+	 * AssemblyNative::Load for how this is supposed to function.  In particular, the alc takes precedence over the stack crawl mark.
+	 *
+	 * The code to load an assembly spec is in
+	 * https://github.com/dotnet/coreclr/blob/19394b01ed59d3771c0602ec321ec4520bcd2aa2/src/vm/assemblyspec.cpp#L892
+	 * AssemblySpec::LoadDomainAssembly - this is where we get the binding context from the parent assembly.
+	 *
+	 * And all the nasty low level stuff is in https://github.com/dotnet/coreclr/blob/ea10aaccb09fe30f0444b821fd8d90d9257dd402/src/vm/appdomain.cpp#L5929
+	 * AppDomain::BindAssemblySpec.
+	 *
+	 * In particular it also calls back to AssembySpec::SetBindingContext
+	 * in order to stick the AssemblyLoadContext ("Binding Context") onto the load result.
+	 *
+	 */
+	MonoDomain *domain = mono_domain_get ();
+	MonoAssemblyLoadContext *alc = (MonoAssemblyLoadContext *)load_Context;
+
+	if (alc)
+		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "InternalLoad: MonoAssemblyLoadContext %p (kind = %s)", alc, alc->kind == MONO_ASMCTX_DEFAULT ? "default" : "other"); /* TODO: mono_assembly_load_context_get_name () */
+
+	/* TODO: use the stack mark, to pick the ALC from the running assembly, if we're not passed one. */
+
+	char *name;
+	name = mono_string_handle_to_utf8 (name_handle, error);
+	goto_if_nok (error, fail);
+
+	MonoAssemblyName aname;
+	gboolean parsed;
+	parsed = mono_assembly_name_parse (name, &aname);
+	g_free (name);
+	if (!parsed)
+		goto fail;
+
+	MonoAssemblyByNameRequest req;
+	mono_assembly_request_prepare (&req.request, sizeof (req), alc ? alc->kind : MONO_ASMCTX_DEFAULT);
+	req.basedir = NULL;
+	req.no_postload_search = TRUE;
+
+	MonoAssembly *ass;
+	ass = mono_assembly_load_context_request_byname (alc, &aname, &req, error);
+	if (!ass)
+		goto fail;
+
+	MonoReflectionAssemblyHandle refass;
+	refass = mono_assembly_get_object_handle (domain, ass, error);
+	goto_if_nok (error, fail);
+	return refass;
+
+fail:
+	return MONO_HANDLE_CAST (MonoReflectionAssembly, NULL_HANDLE);
+}
+
 gpointer
 ves_icall_System_Runtime_AssemblyLoadContext_GetLoadContextForAssembly (MonoReflectionAssemblyHandle refassm, MonoError *error)
 {
 	MonoAssembly *assm = MONO_HANDLE_GETVAL (refassm, assembly);
 	g_assert (assm);
+
+	if (mono_asmctx_get_kind (&assm->context) == MONO_ASMCTX_DEFAULT)
+		return NULL; /* null here means managed will return the default. */
 
 	mono_error_set_not_implemented (error, "AssemblyLoadContext.GetLoadContextForAssembly");
 	return NULL;

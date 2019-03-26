@@ -9,6 +9,7 @@
 #include <config.h>
 #include <glib.h>
 
+#include <mono/metadata/assembly-internals.h>
 #include <mono/metadata/metadata-internals.h>
 
 /* If ENABLE_ASSEMBLY_LOAD_CONTEXT is defined, managed code can create ALCs */
@@ -39,6 +40,9 @@ mono_domain_create_assembly_load_context (MonoDomain *domain, guint32 handle, Mo
 
 void
 mono_assembly_load_context_free (MonoAssemblyLoadContext *alc);
+
+MonoAssembly*
+mono_assembly_load_context_request_byname (MonoAssemblyLoadContext *alc, const MonoAssemblyName *aname, const MonoAssemblyByNameRequest *req, MonoError *error);
 
 #endif /* ENABLE_ASSEMBLY_LOAD_CONTEXT */
 

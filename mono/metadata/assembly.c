@@ -21,6 +21,7 @@
 #include "image.h"
 #include "image-internals.h"
 #include "object-internals.h"
+#include <mono/metadata/assemblyloadcontext.h>
 #include <mono/metadata/loader.h>
 #include <mono/metadata/tabledefs.h>
 #include <mono/metadata/custom-attrs-internals.h>
@@ -4298,6 +4299,33 @@ mono_assembly_request_byname_nosearch (MonoAssemblyName *aname,
 
 	return mono_assembly_load_full_gac_base_default (aname, req->basedir, req->request.asmctx, status);
 }
+
+#ifdef ENABLE_ASSEMBLY_LOAD_CONTEXT
+
+MonoAssembly*
+mono_assembly_load_context_request_byname (MonoAssemblyLoadContext *alc, const MonoAssemblyName *aname, const MonoAssemblyByNameRequest *req, MonoError *error)
+{
+	MonoAssembly *result = NULL;
+	if (!alc || alc->kind == MONO_ASMCTX_DEFAULT) {
+		result = mono_assembly_loaded_full ((MonoAssemblyName*)aname, FALSE);
+		if (result)
+			goto leave;
+		result = invoke_assembly_preload_hook ((MonoAssemblyName*)aname, NULL);
+		if (result)
+			goto leave;
+		MonoImageOpenStatus status;
+		result = mono_assembly_load_full_gac_base_default ((MonoAssemblyName*)aname, req->basedir, req->request.asmctx, &status);
+		if (status != MONO_IMAGE_OK)
+			result = NULL; /* TODO set some kind of error? */
+	} else {
+		mono_error_set_not_implemented (error, "Assembly.Load for non-default AssemblyLoadContext");
+	}
+leave:
+	return result;
+}
+
+#endif /* ENABLE_ASSEMBLY_LOAD_CONTEXT */
+
 
 /* Like mono_assembly_request_byname_nosearch, but don't ask the preload look (ie,
  * the appdomain) to run.  Just looks in the gac, the specified base dir or the
