@@ -12,7 +12,6 @@
  * Copyright 2012 Xamarin Inc
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
-#undef ASSEMBLY_LOAD_DEBUG
 #include <config.h>
 #include <glib.h>
 #include <string.h>
@@ -1462,21 +1461,20 @@ mono_domain_fire_assembly_load (MonoAssembly *assembly, gpointer user_data)
 	MonoClass *klass;
 	MonoObjectHandle appdomain;
 
+	mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Loading %s into domain %s\n", assembly->aname.name, domain->friendly_name);
+
+	mono_domain_assemblies_lock (domain);
+	add_assemblies_to_domain (domain, assembly, NULL);
+	mono_domain_assemblies_unlock (domain);
+
 	if (!MONO_BOOL (domain->domain))
 		goto leave; // This can happen during startup
 
 	if (mono_runtime_get_no_exec ())
 		goto leave;
 
-#ifdef ASSEMBLY_LOAD_DEBUG
-	fprintf (stderr, "Loading %s into domain %s\n", assembly->aname.name, domain->friendly_name);
-#endif
 	appdomain = MONO_HANDLE_NEW (MonoObject, &domain->domain->mbr.obj);
 	klass = mono_handle_class (appdomain);
-
-	mono_domain_assemblies_lock (domain);
-	add_assemblies_to_domain (domain, assembly, NULL);
-	mono_domain_assemblies_unlock (domain);
 
 	if (assembly_load_field == NULL) {
 		assembly_load_field = mono_class_get_field_from_name_full (klass, "AssemblyLoad", NULL);
