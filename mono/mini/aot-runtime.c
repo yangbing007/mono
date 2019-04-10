@@ -2450,6 +2450,10 @@ if (container_assm_name && !container_amodule) {
 		NULL
 		);
 
+	/* XXX FIXME: if we load images from mscorlib, we get an infinite loop not sure why. Like why does mscorlib have any references? */
+	if (!strcmp (assembly->aname.name, "mscorlib"))
+		do_load_image = FALSE;
+
 	/*
 	 * Since we store methoddef and classdef tokens when referring to methods/classes in
 	 * referenced assemblies, we depend on the exact versions of the referenced assemblies.
