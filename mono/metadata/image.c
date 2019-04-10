@@ -1757,19 +1757,23 @@ register_image (MonoImage *image)
 	MonoImage *image2;
 	GHashTable *loaded_images = get_loaded_images_hash (image->ref_only);
 
+	/* WISH: loaded_images and loaded_images_by_name are wrong - in the
+	 * presence of multiple domains (or AssemblyLoadContexts), they cache a
+	 * single arbitrary image, while it is quite possible for an image to
+	 * be loaded differently in different domains (or ALCs).  However
+	 * there's a ton of APIs (mono_image_loaded_internal,
+	 * mono_image_loaded_by_guid_full, and our (coree.c) _CorDllMain) that
+	 * depend on getting some MonoImage back.  And they're used by Mono API
+	 * functions, so it's maybe not possible to get rid of them.  Maybe we
+	 * can at least rid the runtime internally from using these hashtables.
+	 * 
+	 */
 	mono_images_lock ();
 	image2 = (MonoImage *)g_hash_table_lookup (loaded_images, image->name);
 
-	if (image2) {
-		/* Somebody else beat us to it */
-		mono_image_addref (image2);
-		mono_images_unlock ();
-		mono_image_close (image);
-		return image2;
-	}
-
 	GHashTable *loaded_images_by_name = get_loaded_images_by_name_hash (image->ref_only);
-	g_hash_table_insert (loaded_images, image->name, image);
+	if (!image2)
+		g_hash_table_insert (loaded_images, image->name, image);
 	if (image->assembly_name && (g_hash_table_lookup (loaded_images_by_name, image->assembly_name) == NULL))
 		g_hash_table_insert (loaded_images_by_name, (char *) image->assembly_name, image);
 	mono_images_unlock ();
@@ -1924,7 +1928,6 @@ MonoImage *
 mono_image_open_a_lot (const char *fname, MonoImageOpenStatus *status, gboolean refonly, gboolean load_from_context)
 {
 	MonoImage *image;
-	GHashTable *loaded_images = get_loaded_images_hash (refonly);
 	char *absfname;
 	
 	g_return_val_if_fail (fname != NULL, NULL);
@@ -1939,38 +1942,6 @@ mono_image_open_a_lot (const char *fname, MonoImageOpenStatus *status, gboolean 
 
 		absfname = mono_path_resolve_symlinks (fname);
 		fname_utf16 = NULL;
-
-		/* There is little overhead because the OS loader lock is held by LoadLibrary. */
-		mono_images_lock ();
-		image = (MonoImage*)g_hash_table_lookup (loaded_images, absfname);
-		if (image) { // Image already loaded
-			if (!load_from_context && mono_is_problematic_image (image)) {
-				// If we previously loaded a problematic image, don't
-				// return it if we're not in LoadFrom context.
-				//
-				// Note: this has an interaction with
-				//  mono_problematic_image_reprobe - at that point we
-				//  have a problematic image opened, but we don't want
-				//  to see it again when we go searching for an image
-				//  to load.
-				mono_images_unlock ();
-				return NULL;
-			}
-			g_assert (m_image_is_module_handle (image));
-			if (m_image_has_entry_point (image) && image->ref_count == 0) {
-				/* Increment reference count on images loaded outside of the runtime. */
-				fname_utf16 = g_utf8_to_utf16 (absfname, -1, NULL, NULL, NULL);
-				/* The image is already loaded because _CorDllMain removes images from the hash. */
-				module_handle = LoadLibrary (fname_utf16);
-				g_assert (module_handle == (HMODULE) image->raw_data);
-			}
-			mono_image_addref (image);
-			mono_images_unlock ();
-			if (fname_utf16)
-				g_free (fname_utf16);
-			g_free (absfname);
-			return image;
-		}
 
 		// Image not loaded, load it now
 		fname_utf16 = g_utf8_to_utf16 (absfname, -1, NULL, NULL, NULL);
@@ -2015,36 +1986,6 @@ mono_image_open_a_lot (const char *fname, MonoImageOpenStatus *status, gboolean 
 #endif
 
 	absfname = mono_path_resolve_symlinks (fname);
-
-	/*
-	 * The easiest solution would be to do all the loading inside the mutex,
-	 * but that would lead to scalability problems. So we let the loading
-	 * happen outside the mutex, and if multiple threads happen to load
-	 * the same image, we discard all but the first copy.
-	 */
-	mono_images_lock ();
-	image = (MonoImage *)g_hash_table_lookup (loaded_images, absfname);
-	g_free (absfname);
-
-	if (image) { // Image already loaded
-		if (!refonly && !load_from_context && mono_is_problematic_image (image)) {
-			// If we previously loaded a problematic image, don't
-			// return it if we're not in LoadFrom context.
-			//
-			// Note: this has an interaction with
-			//  mono_problematic_image_reprobe - at that point we
-			//  have a problematic image opened, but we don't want
-			//  to see it again when we go searching for an image
-			//  to load.
-			mono_images_unlock ();
-			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Not returning problematic image '%s' refcount=%d", image->name, image->ref_count);
-			return NULL;
-		}
-		mono_image_addref (image);
-		mono_images_unlock ();
-		return image;
-	}
-	mono_images_unlock ();
 
 	// Image not loaded, load it now
 	image = do_mono_image_open (fname, status, TRUE, TRUE, refonly, FALSE, load_from_context);
