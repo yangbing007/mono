@@ -2349,6 +2349,7 @@ mono_assembly_request_open (const char *filename, const MonoAssemblyOpenRequest 
 		return NULL;
 	}
 
+	gboolean redirected = FALSE;
 	if (load_req.asmctx == MONO_ASMCTX_LOADFROM || load_req.asmctx == MONO_ASMCTX_INDIVIDUAL) {
 		MonoAssembly *redirected_asm = NULL;
 		MonoImageOpenStatus new_status = MONO_IMAGE_OK;
@@ -2357,6 +2358,7 @@ mono_assembly_request_open (const char *filename, const MonoAssemblyOpenRequest 
 			image = redirected_asm->image;
 			mono_image_addref (image); /* so that mono_image_close, below, has something to do */
 			/* fall thru to if (image->assembly) below */
+			redirected = TRUE;
 		} else if (new_status != MONO_IMAGE_OK) {
 			*status = new_status;
 			mono_image_close (image);
@@ -2366,6 +2368,7 @@ mono_assembly_request_open (const char *filename, const MonoAssemblyOpenRequest 
 	}
 
 	if (image->assembly) {
+		g_assert (redirected);
 		/* We want to return the MonoAssembly that's already loaded,
 		 * but if we're using the strict assembly loader, we also need
 		 * to check that the previously loaded assembly matches the
@@ -2384,6 +2387,8 @@ mono_assembly_request_open (const char *filename, const MonoAssemblyOpenRequest 
 			g_free (fname);
 			return image->assembly;
 		}
+	} else {
+		g_assert (!redirected);
 	}
 
 	ass = mono_assembly_request_load_from (image, fname, &load_req, status);
@@ -2847,11 +2852,18 @@ mono_assembly_request_load_from (MonoImage *image, const char *fname,
 		/* FIXME: I think individual context should probably also look for an existing MonoAssembly here, we just need to pass the asmctx to the search hook so that it does a filename match (I guess?) */
 		ass2 = mono_assembly_invoke_search_hook_internal (&ass->aname, NULL, asmctx == MONO_ASMCTX_REFONLY, FALSE);
 		if (ass2) {
-			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Image %s[%p] reusing existing assembly %s[%p]", ass->aname.name, ass, ass2->aname.name, ass2);
+			if (predicate && !predicate (ass2, user_data)) {
+				mono_trace (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY, "Predicate returned FALSE, won't reuse '%s' for '%s' (%s)\n", ass2->aname.name, ass->aname.name, image->name);
+				*status = MONO_IMAGE_IMAGE_INVALID;
+				ass2 = NULL;
+			} else  {
+				mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Image %s[%p] reusing existing assembly %s[%p]", ass->aname.name, ass, ass2->aname.name, ass2);
+				*status = MONO_IMAGE_OK;
+			}
+
 			g_free (ass);
 			g_free (base_dir);
 			mono_image_close (image);
-			*status = MONO_IMAGE_OK;
 			return ass2;
 		}
 	}
