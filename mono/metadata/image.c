@@ -707,9 +707,7 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 	MonoTableInfo *t;
 	MonoTableInfo *file_table;
 	int i;
-	char *base_dir;
 	gboolean refonly = image->ref_only;
-	GList *list_iter, *valid_modules = NULL;
 	MonoImageOpenStatus status;
 
 	error_init (error);
@@ -720,42 +718,60 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 		return image->modules [idx - 1];
 
 	file_table = &image->tables [MONO_TABLE_FILE];
+	const char **valid_files = g_new0 (const char *, file_table->rows);
 	for (i = 0; i < file_table->rows; i++) {
 		guint32 cols [MONO_FILE_SIZE];
 		mono_metadata_decode_row (file_table, i, cols, MONO_FILE_SIZE);
 		if (cols [MONO_FILE_FLAGS] == FILE_CONTAINS_NO_METADATA)
 			continue;
-		valid_modules = g_list_prepend (valid_modules, (char*)mono_metadata_string_heap (image, cols [MONO_FILE_NAME]));
+		valid_files [i] = mono_metadata_string_heap (image, cols [MONO_FILE_NAME]);
 	}
 
 	t = &image->tables [MONO_TABLE_MODULEREF];
-	base_dir = g_path_get_dirname (image->name);
 
 	{
-		char *module_ref;
 		const char *name;
 		guint32 cols [MONO_MODULEREF_SIZE];
 		/* if there is no file table, we try to load the module... */
 		int valid = file_table->rows == 0;
+		int valid_file_idx = -1;
 
 		mono_metadata_decode_row (t, idx - 1, cols, MONO_MODULEREF_SIZE);
 		name = mono_metadata_string_heap (image, cols [MONO_MODULEREF_NAME]);
-		for (list_iter = valid_modules; list_iter; list_iter = list_iter->next) {
+		for (i = 0; i < file_table->rows; ++i) {
+			if (!valid_files [i])
+				continue;
 			/* be safe with string dups, but we could just compare string indexes  */
-			if (strcmp ((const char*)list_iter->data, name) == 0) {
+			if (strcmp (valid_files [i], name) == 0) {
 				valid = TRUE;
+				valid_file_idx = i;
 				break;
 			}
 		}
 		if (valid) {
-			module_ref = g_build_filename (base_dir, name, NULL);
-			MonoImage *moduleImage = mono_image_open_full (module_ref, &status, refonly);
+			char *module_ref = NULL;
+			MonoImage *moduleImage = NULL;
+			if (valid_file_idx >= 0) {
+				/* the file index is 1-based */
+				moduleImage = mono_image_load_file_for_image_checked (image, valid_file_idx + 1, error);
+				if (!is_ok (error) || !moduleImage) {
+					g_free (module_ref);
+					g_free (valid_files);
+					return NULL;
+				}
+				/* image->modules, below, will add a reference */
+				mono_image_addref (moduleImage);
+			} else {
+				char *base_dir = g_path_get_dirname (image->name);
+				module_ref = g_build_filename (base_dir, name, NULL);
+				g_free (base_dir);
+				moduleImage = mono_image_open_full (module_ref, &status, refonly);
+			}
 			if (moduleImage) {
 				if (!assign_assembly_parent_for_netmodule (moduleImage, image, error)) {
 					mono_image_close (moduleImage);
 					g_free (module_ref);
-					g_free (base_dir);
-					g_list_free (valid_modules);
+					g_free (valid_files);
 					return NULL;
 				}
 
@@ -773,8 +789,7 @@ mono_image_load_module_checked (MonoImage *image, int idx, MonoError *error)
 
 	image->modules_loaded [idx - 1] = TRUE;
 
-	g_free (base_dir);
-	g_list_free (valid_modules);
+	g_free (valid_files);
 
 	return image->modules [idx - 1];
 }
