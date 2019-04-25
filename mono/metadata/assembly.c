@@ -2353,6 +2353,7 @@ mono_assembly_request_open (const char *filename, const MonoAssemblyOpenRequest 
 	if (load_req.asmctx == MONO_ASMCTX_LOADFROM || load_req.asmctx == MONO_ASMCTX_INDIVIDUAL) {
 		MonoAssembly *redirected_asm = NULL;
 		MonoImageOpenStatus new_status = MONO_IMAGE_OK;
+		/* XXX FIXME: this is going to open the redirectee as a new MonoAssembly since it ends up going back to mono_assembly_request_open.  */
 		if ((redirected_asm = chain_redirections_loadfrom (image, &new_status))) {
 			mono_image_close (image);
 			image = redirected_asm->image;
